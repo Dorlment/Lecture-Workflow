@@ -25,6 +25,7 @@ const {
 	createLectureFileBaseName,
 	findAvailableFilePath,
 	sanitizeFileNameSegment,
+	SubmissionGuard,
 } = utilities;
 
 test('removes every Windows-invalid filename character', () => {
@@ -98,6 +99,37 @@ test('preserves a long transcript without truncation or escaping', () => {
 
 	assert.ok(content.includes(`## 原始文字稿\n\n${transcript}\n\n## AI 整理结果`));
 	assert.equal(content.indexOf(transcript), content.lastIndexOf(transcript));
+});
+
+test('preserves transcript leading and trailing whitespace exactly', () => {
+	const transcript = '\n\n  第一行保留前导空格\n最后一行保留尾随空格  \n\n';
+	const content = buildLectureNote(
+		{ course: '课程', topic: '主题', transcript },
+		'2026-08-06 17:30:00',
+	);
+
+	assert.ok(content.includes(`## 原始文字稿\n\n${transcript}\n\n## AI 整理结果`));
+});
+
+test('uses the default prompt only for a blank transcript', () => {
+	const content = buildLectureNote(
+		{ course: '课程', topic: '主题', transcript: ' \n\t\n ' },
+		'2026-08-06 17:30:00',
+	);
+
+	assert.ok(content.includes('（未提供原始文字稿。）'));
+	assert.equal(content.includes(' \n\t\n '), false);
+});
+
+test('prevents duplicate submissions until the active submission finishes', () => {
+	const guard = new SubmissionGuard();
+
+	assert.equal(guard.tryStart(), true);
+	assert.equal(guard.isSubmitting, true);
+	assert.equal(guard.tryStart(), false);
+	guard.finish();
+	assert.equal(guard.isSubmitting, false);
+	assert.equal(guard.tryStart(), true);
 });
 
 test('rejects folder paths that can escape the Vault', () => {

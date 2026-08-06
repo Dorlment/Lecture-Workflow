@@ -1,5 +1,6 @@
 import {
 	App,
+	Notice,
 	Plugin,
 	PluginSettingTab,
 	Setting,
@@ -19,10 +20,14 @@ interface SettingsPlugin extends Plugin {
 
 export class LectureWorkflowSettingTab extends PluginSettingTab {
 	private readonly lectureWorkflowPlugin: SettingsPlugin;
+	private lastSavedNotesFolder: string;
+	private latestSaveRequest = 0;
+	private saveQueue: Promise<void> = Promise.resolve();
 
 	constructor(app: App, plugin: SettingsPlugin) {
 		super(app, plugin);
 		this.lectureWorkflowPlugin = plugin;
+		this.lastSavedNotesFolder = plugin.settings.notesFolder;
 	}
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
@@ -45,9 +50,12 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 			return;
 		}
 
-		this.lectureWorkflowPlugin.settings.notesFolder =
-			value.trim() || DEFAULT_SETTINGS.notesFolder;
-		await this.lectureWorkflowPlugin.saveSettings();
+		await this.persistNotesFolder(value, (previousValue) => {
+			const input = this.containerEl.querySelector<HTMLInputElement>('input');
+			if (input) {
+				input.value = previousValue;
+			}
+		});
 	}
 
 	display(): void {
@@ -62,10 +70,38 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 					.setPlaceholder(DEFAULT_SETTINGS.notesFolder)
 					.setValue(this.lectureWorkflowPlugin.settings.notesFolder)
 					.onChange(async (value) => {
-						this.lectureWorkflowPlugin.settings.notesFolder =
-							value.trim() || DEFAULT_SETTINGS.notesFolder;
-						await this.lectureWorkflowPlugin.saveSettings();
+						await this.persistNotesFolder(value, (previousValue) => {
+							text.setValue(previousValue);
+						});
 					}),
 			);
+	}
+
+	private async persistNotesFolder(
+		value: string,
+		restoreInput: (previousValue: string) => void,
+	): Promise<void> {
+		const nextValue = value.trim() || DEFAULT_SETTINGS.notesFolder;
+		const requestNumber = ++this.latestSaveRequest;
+		this.lectureWorkflowPlugin.settings.notesFolder = nextValue;
+
+		const saveOperation = this.saveQueue.then(async () => {
+			this.lectureWorkflowPlugin.settings.notesFolder = nextValue;
+			try {
+				await this.lectureWorkflowPlugin.saveSettings();
+				this.lastSavedNotesFolder = nextValue;
+			} catch (error) {
+				this.lectureWorkflowPlugin.settings.notesFolder =
+					this.lastSavedNotesFolder;
+				if (requestNumber === this.latestSaveRequest) {
+					restoreInput(this.lastSavedNotesFolder);
+				}
+				const message = error instanceof Error ? error.message : String(error);
+				new Notice(`保存设置失败，已恢复之前的目录：${message}`);
+			}
+		});
+
+		this.saveQueue = saveOperation;
+		await saveOperation;
 	}
 }

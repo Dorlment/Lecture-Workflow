@@ -4,6 +4,23 @@ const DEFAULT_TRANSCRIPT = '（未提供原始文字稿。）';
 const MAX_FILE_NAME_LENGTH = 180;
 const MARKDOWN_EXTENSION = '.md';
 
+export class SubmissionGuard {
+	isSubmitting = false;
+
+	tryStart(): boolean {
+		if (this.isSubmitting) {
+			return false;
+		}
+
+		this.isSubmitting = true;
+		return true;
+	}
+
+	finish(): void {
+		this.isSubmitting = false;
+	}
+}
+
 export function assertSafeVaultFolderPath(folderPath: string): void {
 	const trimmedPath = folderPath.trim();
 	const segments = trimmedPath.split(/[\\/]/);
@@ -68,7 +85,7 @@ export function findAvailableFilePath(
 }
 
 export function buildLectureNote(input: LectureNoteInput, created: string): string {
-	const transcript = input.transcript || DEFAULT_TRANSCRIPT;
+	const transcript = input.transcript.trim() ? input.transcript : DEFAULT_TRANSCRIPT;
 
 	return `---
 type: lecture

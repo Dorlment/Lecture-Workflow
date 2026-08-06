@@ -13,6 +13,7 @@ import type {
 
 export default class LectureWorkflowPlugin extends Plugin {
 	settings: LectureWorkflowSettings = DEFAULT_SETTINGS;
+	private readonly openModals = new Set<CreateLectureNoteModal>();
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -30,6 +31,13 @@ export default class LectureWorkflowPlugin extends Plugin {
 		this.addSettingTab(new LectureWorkflowSettingTab(this.app, this));
 	}
 
+	onunload(): void {
+		for (const modal of this.openModals) {
+			modal.close();
+		}
+		this.openModals.clear();
+	}
+
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 	}
@@ -40,21 +48,36 @@ export default class LectureWorkflowPlugin extends Plugin {
 	}
 
 	private openCreateLectureNoteModal(): void {
-		new CreateLectureNoteModal(this.app, async (input) =>
-			this.createLectureNote(input),
-		).open();
+		let modal: CreateLectureNoteModal;
+		modal = new CreateLectureNoteModal(
+			this.app,
+			async (input) => this.createLectureNote(input),
+			() => this.openModals.delete(modal),
+		);
+		this.openModals.add(modal);
+		modal.open();
 	}
 
 	private async createLectureNote(input: LectureNoteInput): Promise<boolean> {
+		const service = new LectureNoteService(this.app);
+		let file;
 		try {
-			const service = new LectureNoteService(this.app);
-			const file = await service.create(input, this.settings.notesFolder);
-			new Notice(`课堂笔记已创建：${file.path}`);
-			return true;
+			file = await service.create(input, this.settings.notesFolder);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			new Notice(`创建课堂笔记失败：${message}`);
 			return false;
 		}
+
+		try {
+			await service.open(file);
+		} catch (error) {
+			console.error('Lecture Workflow: failed to open created note', error);
+			new Notice(`笔记已创建，但无法自动打开：${file.path}`);
+			return true;
+		}
+
+		new Notice(`课堂笔记已创建：${file.path}`);
+		return true;
 	}
 }

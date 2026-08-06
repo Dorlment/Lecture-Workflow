@@ -33,10 +33,11 @@ export class LectureNoteService {
 			(path) => Boolean(this.app.vault.getAbstractFileByPath(path)),
 		);
 		const content = buildLectureNote(input, created);
-		const file = await this.app.vault.create(filePath, content);
+		return this.app.vault.create(filePath, content);
+	}
 
+	async open(file: TFile): Promise<void> {
 		await this.app.workspace.getLeaf(false).openFile(file);
-		return file;
 	}
 
 	private async ensureFolder(folderPath: string): Promise<void> {
