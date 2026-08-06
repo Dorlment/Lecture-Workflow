@@ -1,0 +1,25 @@
+.lecture-workflow-modal .setting-item {
+	align-items: flex-start;
+}
+
+.lecture-workflow-modal .setting-item-control {
+	min-width: min(60%, 28rem);
+}
+
+.lecture-workflow-modal input,
+.lecture-workflow-modal textarea {
+	width: 100%;
+}
+
+.lecture-workflow-transcript-setting textarea {
+	min-height: 10rem;
+	resize: vertical;
+}
+
+.lecture-workflow-actions {
+	border-top: 0;
+}
+
+.lecture-workflow-actions .setting-item-control {
+	justify-content: flex-end;
+}
