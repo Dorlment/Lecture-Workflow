@@ -23,3 +23,21 @@
 .lecture-workflow-actions .setting-item-control {
 	justify-content: flex-end;
 }
+
+.lecture-workflow-settings-container {
+	width: 100%;
+}
+
+.lecture-workflow-secret-warning,
+.lecture-workflow-ai-replace-warning,
+.lecture-workflow-ai-incomplete-warning {
+	color: var(--text-warning);
+}
+
+.lecture-workflow-ai-preview-content {
+	box-sizing: border-box;
+	min-height: 24rem;
+	width: 100%;
+	resize: vertical;
+	font-family: var(--font-monospace);
+}

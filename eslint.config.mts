@@ -34,6 +34,19 @@ export default defineConfig(
 	},
 	...obsidianmd.configs.recommended,
 	{
+		files: ['**/*.ts'],
+		rules: {
+			'obsidianmd/ui/sentence-case': [
+				'warn',
+				{
+					brands: ['Lecture Workflow', 'DeepSeek', 'Qwen', 'OpenAI', 'Workspace', 'Markdown'],
+					acronyms: ['AI', 'API', 'URL', 'ID', 'OK', 'VPN'],
+					enforceCamelCaseLower: true,
+				},
+			],
+		},
+	},
+	{
 		files: ['tests/**/*.mjs'],
 		languageOptions: {
 			globals: {
