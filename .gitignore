@@ -1,0 +1,24 @@
+# vscode
+.vscode
+
+# IntelliJ
+*.iml
+.idea
+
+# npm
+node_modules
+
+# Generated plugin bundle; upload it to GitHub releases instead.
+main.js
+
+# Source maps
+*.map
+
+# Obsidian plugin data
+data.json
+
+# Local Obsidian vault configuration
+.obsidian/
+
+# macOS Finder view state
+.DS_Store
