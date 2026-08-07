@@ -1,4 +1,10 @@
-import { Menu, Notice, Plugin } from 'obsidian';
+import {
+	Menu,
+	Notice,
+	Platform,
+	Plugin,
+	TFile,
+} from 'obsidian';
 
 import { AiPreviewModal } from './ai-preview-modal';
 import { AiRetryModal } from './ai-retry-modal';
@@ -20,6 +26,10 @@ import {
 } from './ai-workflow';
 import { CreateLectureNoteModal } from './modal';
 import {
+	ClassroomSessionController,
+	classroomSessionMenuTitle,
+} from './classroom-session-controller';
+import {
 	isNoteConflictError,
 	isNoteLatestReadError,
 	NOTE_CONFLICT_MESSAGE,
@@ -35,6 +45,16 @@ import {
 	LectureWorkflowSettingTab,
 } from './settings';
 import { normalizeSettings } from './settings-data';
+import { ObsidianBackgroundScreenshotService } from './screenshot-background-service';
+import {
+	buildClassroomSessionId,
+	ScreenshotBackgroundSession,
+} from './screenshot-background-session';
+import type {
+	ClassroomScreenshotEvent,
+	ScreenshotBackgroundState,
+} from './screenshot-background-types';
+import { createElectronClipboardAdapter } from './screenshot-clipboard-adapter';
 import type {
 	LectureNoteInput,
 	LectureWorkflowSettings,
@@ -53,9 +73,14 @@ export default class LectureWorkflowPlugin extends Plugin {
 	private readonly openModals = new Set<{ close(): void }>();
 	private readonly aiWorkflowGate = new AiWorkflowGate();
 	private activeVisionAbortController: AbortController | null = null;
+	private classroomSessionController: ClassroomSessionController<TFile> | null = null;
+	private screenshotBackgroundService: ObsidianBackgroundScreenshotService | null = null;
+	private screenshotStatusBarEl: HTMLElement | null = null;
+	private unsubscribeScreenshotState: (() => void) | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		this.initializeScreenshotBackgroundSession();
 
 		this.addCommand({
 			id: 'create-lecture-note',
@@ -69,6 +94,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 			callback: () => this.runAiWorkflow(),
 		});
 
+		this.addCommand({
+			id: 'toggle-classroom-listening',
+			name: '切换课堂监听',
+			callback: () => this.toggleClassroomListening(),
+		});
+
 		this.addRibbonIcon('notebook-pen', 'Lecture Workflow', (event) => {
 			this.showRibbonMenu(event);
 		});
@@ -77,6 +108,15 @@ export default class LectureWorkflowPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		this.classroomSessionController?.dispose();
+		this.classroomSessionController = null;
+		this.screenshotBackgroundService?.dispose();
+		this.screenshotBackgroundService = null;
+		this.unsubscribeScreenshotState?.();
+		this.unsubscribeScreenshotState = null;
+		this.screenshotStatusBarEl?.empty();
+		this.screenshotStatusBarEl?.addClass('is-hidden');
+		this.screenshotStatusBarEl = null;
 		this.activeVisionAbortController?.abort();
 		this.activeVisionAbortController = null;
 		for (const modal of this.openModals) {
@@ -143,8 +183,258 @@ export default class LectureWorkflowPlugin extends Plugin {
 		return new ProviderRegistry(this.settings, new ObsidianHttpClient());
 	}
 
+	getBackgroundScreenshotState(): ScreenshotBackgroundState {
+		if (!Platform.isDesktopApp) {
+			return {
+				status: 'unsupported',
+				sessionId: null,
+				startedAt: null,
+				endedAt: null,
+				targetPath: null,
+				targetName: null,
+				detectedCount: 0,
+				savedCount: 0,
+				insertedCount: 0,
+				failedCount: 0,
+				lastDetection: null,
+				lastSavedPath: null,
+				lastError: null,
+				events: [],
+			};
+		}
+		return this.classroomSessionController?.getState() ?? {
+			status: 'idle',
+			sessionId: null,
+			startedAt: null,
+			endedAt: null,
+			targetPath: null,
+			targetName: null,
+			detectedCount: 0,
+			savedCount: 0,
+			insertedCount: 0,
+			failedCount: 0,
+			lastDetection: null,
+			lastSavedPath: null,
+			lastError: null,
+			events: [],
+		};
+	}
+
+	useCurrentNoteForBackgroundScreenshots(): void {
+		const file = this.app.workspace.getActiveFile();
+		if (!file || file.extension !== 'md') {
+			new Notice('请先打开一篇 Markdown 课堂笔记。');
+			return;
+		}
+		if (!this.classroomSessionController?.setTarget(file)) {
+			new Notice('后台课堂截图监听中，请先停止当前会话。');
+			return;
+		}
+		new Notice(`已将截图目标设为：${file.path}`);
+	}
+
+	startBackgroundScreenshotSession(): void {
+		if (!Platform.isDesktopApp) {
+			new Notice(mobileScreenshotUnsupportedMessage());
+			return;
+		}
+		if (this.aiWorkflowGate.state !== 'idle') {
+			new Notice('AI 整理正在进行，请关闭预览或等待完成后再启动截图监听。');
+			return;
+		}
+		const file = this.app.workspace.getActiveFile();
+		if (!file || file.extension !== 'md') {
+			new Notice('请先打开一篇 Markdown 课堂笔记。');
+			return;
+		}
+		const controller = this.classroomSessionController;
+		if (!controller) {
+			new Notice(backgroundScreenshotUnsupportedMessage());
+			return;
+		}
+		const result = controller.start(file);
+		if (result === 'started') {
+			new Notice(`课堂监听已启动：${file.basename}`);
+			return;
+		}
+		if (result === 'unsupported-platform') {
+			new Notice(mobileScreenshotUnsupportedMessage());
+			return;
+		}
+		if (result === 'unsupported') {
+			return;
+		}
+		if (result === 'busy') {
+			new Notice('后台课堂截图已经在监听中，或其他写入流程尚未结束。');
+			return;
+		}
+		new Notice('请先选择一篇 Markdown 课堂笔记。');
+	}
+
+	stopBackgroundScreenshotSession(): void {
+		const result = this.classroomSessionController?.stop('manual');
+		if (!result?.stopped) {
+			return;
+		}
+		new Notice(`课堂监听已停止，共保存 ${result.savedCount} 张截图。`);
+	}
+
+	private toggleClassroomListening(): void {
+		const controller = this.classroomSessionController;
+		if (!controller) {
+			new Notice(backgroundScreenshotUnsupportedMessage());
+			return;
+		}
+		if (controller.getState().status === 'listening') {
+			const savedCount = controller.getState().savedCount;
+			if (controller.toggle(null) === 'stopped') {
+				new Notice(`课堂监听已停止，共保存 ${savedCount} 张截图。`);
+			}
+			return;
+		}
+		if (!Platform.isDesktopApp) {
+			new Notice(mobileScreenshotUnsupportedMessage());
+			return;
+		}
+		if (this.aiWorkflowGate.state !== 'idle') {
+			new Notice('AI 整理正在进行，请关闭预览或等待完成后再启动课堂监听。');
+			return;
+		}
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile || activeFile.extension !== 'md') {
+			new Notice('请先打开一篇课堂笔记，再启动课堂监听。');
+			return;
+		}
+		const result = controller.toggle(activeFile);
+		if (result === 'started') {
+			new Notice(`课堂监听已启动：${activeFile.basename}`);
+			return;
+		}
+		if (result === 'stopped') {
+			new Notice(`课堂监听已停止，共保存 ${controller.getState().savedCount} 张截图。`);
+			return;
+		}
+		this.handleClassroomSessionStartFailure(result);
+	}
+
+	private handleClassroomSessionStartFailure(
+		result: Exclude<ReturnType<ClassroomSessionController<TFile>['toggle']>, 'started' | 'stopped'>,
+	): void {
+		if (result === 'unsupported-platform') {
+			new Notice(mobileScreenshotUnsupportedMessage());
+			return;
+		}
+		if (result === 'unsupported') {
+			return;
+		}
+		if (result === 'busy') {
+			new Notice('课堂监听已经在进行，或其他写入流程尚未结束。');
+			return;
+		}
+		new Notice('请先打开一篇课堂笔记，再启动课堂监听。');
+	}
+
+	onBackgroundScreenshotStateChange(
+		listener: (state: ScreenshotBackgroundState) => void,
+	): () => void {
+		return this.classroomSessionController?.subscribe(listener) ?? (() => undefined);
+	}
+
+	private initializeScreenshotBackgroundSession(): void {
+		this.screenshotBackgroundService = new ObsidianBackgroundScreenshotService(this.app);
+		this.screenshotStatusBarEl = this.addStatusBarItem();
+		this.screenshotStatusBarEl.addClass('is-hidden');
+		this.registerDomEvent(this.screenshotStatusBarEl, 'click', () => {
+			this.stopBackgroundScreenshotSession();
+		});
+		const screenshotSession = new ScreenshotBackgroundSession<TFile>({
+			isDesktopApp: () => Platform.isDesktopApp,
+			isConflictingWorkflowActive: () => this.aiWorkflowGate.state !== 'idle',
+			createClipboardAdapter: () => createElectronClipboardAdapter({
+				isDesktopApp: Platform.isDesktopApp,
+			}),
+			createSessionId: (startedAt) => buildClassroomSessionId(startedAt),
+			filePath: (file) => file.path,
+			fileName: (file) => file.basename,
+			isTargetFileAvailable: (file) =>
+				file.extension === 'md'
+				&& this.app.vault.getAbstractFileByPath(file.path) === file,
+			now: () => new Date(),
+			setInterval: (callback, intervalMs) => window.setInterval(callback, intervalMs),
+			clearInterval: (intervalId) => window.clearInterval(intervalId),
+			processScreenshot: (capture) => {
+				const service = this.screenshotBackgroundService;
+				if (!service) {
+					return Promise.resolve({
+						status: 'failed' as const,
+						error: '后台课堂截图服务不可用。',
+					});
+				}
+				return service.process(capture);
+			},
+			onEventResult: (event) => this.handleScreenshotEventResult(event),
+			onStopped: (reason) => {
+				if (reason === 'target-deleted') {
+					new Notice('目标课堂笔记已被删除，后台截图监听已停止。');
+				} else if (reason === 'capability-failed') {
+					new Notice(backgroundScreenshotUnsupportedMessage());
+				}
+			},
+		});
+		this.classroomSessionController = new ClassroomSessionController(screenshotSession);
+		this.unsubscribeScreenshotState = this.classroomSessionController.subscribe(
+			(state) => this.updateScreenshotStatusBar(state),
+		);
+		this.registerEvent(this.app.vault.on('delete', (file) => {
+			if (file instanceof TFile) {
+				this.classroomSessionController?.handleTargetDeleted(file);
+			}
+		}));
+		this.registerEvent(this.app.vault.on('rename', (file) => {
+			if (file instanceof TFile) {
+				this.classroomSessionController?.handleTargetRenamed(file);
+			}
+		}));
+	}
+
+	private updateScreenshotStatusBar(state: ScreenshotBackgroundState): void {
+		const statusBar = this.screenshotStatusBarEl;
+		if (!statusBar) {
+			return;
+		}
+		if (state.status !== 'listening' || !state.targetName) {
+			statusBar.empty();
+			statusBar.addClass('is-hidden');
+			return;
+		}
+		statusBar.removeClass('is-hidden');
+		statusBar.setText(
+			`课堂监听中 · ${state.targetName} · 已保存 ${state.savedCount} 张`,
+		);
+		statusBar.setAttr('aria-label', '点击停止后台课堂截图监听');
+	}
+
+	private handleScreenshotEventResult(event: ClassroomScreenshotEvent): void {
+		if (!event.error) {
+			return;
+		}
+		if (event.savedPath) {
+			new Notice(`截图已保存，但写入课堂时间线失败：${event.savedPath}。${event.error}`);
+			return;
+		}
+		new Notice(`课堂截图保存失败：${event.error}`);
+	}
+
 	private showRibbonMenu(event: MouseEvent): void {
 		const menu = new Menu();
+		const classroomState = this.getBackgroundScreenshotState();
+		const isListening = classroomState.status === 'listening';
+		menu.addItem((item) =>
+			item
+				.setTitle(classroomSessionMenuTitle(classroomState))
+				.setIcon(isListening ? 'circle-stop' : 'radio-tower')
+				.onClick(() => this.toggleClassroomListening()),
+		);
 		menu.addItem((item) =>
 			item
 				.setTitle('创建课堂笔记')
@@ -161,6 +451,10 @@ export default class LectureWorkflowPlugin extends Plugin {
 	}
 
 	private async runAiWorkflow(): Promise<void> {
+		if (this.classroomSessionController?.getState().status === 'listening') {
+			new Notice('后台课堂截图监听中，请先结束截图监听。');
+			return;
+		}
 		const file = this.app.workspace.getActiveFile();
 		if (!file || file.extension !== 'md') {
 			new Notice('请先打开一篇 Markdown 课堂笔记。');
@@ -321,6 +615,10 @@ export default class LectureWorkflowPlugin extends Plugin {
 		registry: ProviderRegistry,
 		providerId: TextProviderId,
 	): Promise<void> {
+		if (this.classroomSessionController?.getState().status === 'listening') {
+			new Notice('后台课堂截图监听中，请先结束截图监听。');
+			return;
+		}
 		if (!this.aiWorkflowGate.beginGeneration()) {
 			new Notice('AI 整理正在进行，请勿重复提交。');
 			return;
@@ -461,6 +759,10 @@ export default class LectureWorkflowPlugin extends Plugin {
 		registry: ProviderRegistry,
 		providerId: VisionProviderId,
 	): Promise<void> {
+		if (this.classroomSessionController?.getState().status === 'listening') {
+			new Notice('后台课堂截图监听中，请先结束截图监听。');
+			return;
+		}
 		if (!this.aiWorkflowGate.beginGeneration()) {
 			new Notice('AI 整理正在进行，请勿重复提交。');
 			return;
@@ -585,4 +887,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 		this.openModals.add(modal);
 		modal.open();
 	}
+}
+
+function mobileScreenshotUnsupportedMessage(): string {
+	return '课堂截图目前仅支持 Obsidian 桌面端。';
+}
+
+function backgroundScreenshotUnsupportedMessage(): string {
+	return '当前 Obsidian 版本不支持后台剪贴板图片监听，请使用手动导入方式。';
 }

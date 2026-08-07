@@ -2,7 +2,7 @@
 	"id": "lecture-workflow",
 	"name": "Lecture Workflow",
 	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
+	"minAppVersion": "1.4.0",
 	"description": "将课堂文字稿、笔记和截图整理成结构化学习笔记，并保存回 Obsidian。",
 	"author": "Dorlment",
 	"authorUrl": "https://github.com/Dorlment",

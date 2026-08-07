@@ -8,6 +8,8 @@ import {
 import type { SettingDefinitionItem } from 'obsidian';
 
 import type { TextProviderId } from './provider-types';
+import type { ScreenshotBackgroundState } from './screenshot-background-types';
+import { ScreenshotSettingsStateBinding } from './screenshot-settings-state';
 import {
 	buildQwenBaseUrl,
 } from './providers/text-providers';
@@ -25,6 +27,31 @@ interface SettingsPlugin extends Plugin {
 	settings: LectureWorkflowSettings;
 	saveSettings(): Promise<void>;
 	testTextProvider(id: TextProviderId): Promise<void>;
+	getBackgroundScreenshotState?(): ScreenshotBackgroundState;
+	useCurrentNoteForBackgroundScreenshots?(): void;
+	startBackgroundScreenshotSession?(): void;
+	stopBackgroundScreenshotSession?(): void;
+	onBackgroundScreenshotStateChange?(
+		listener: (state: ScreenshotBackgroundState) => void,
+	): () => void;
+}
+
+interface BackgroundScreenshotUi {
+	statusEl?: HTMLElement;
+	targetEl?: HTMLElement;
+	startedAtEl?: HTMLElement;
+	elapsedEl?: HTMLElement;
+	detectedEl?: HTMLElement;
+	savedEl?: HTMLElement;
+	insertedEl?: HTMLElement;
+	failedEl?: HTMLElement;
+	lastDetectionEl?: HTMLElement;
+	lastSavedPathEl?: HTMLElement;
+	lastErrorEl?: HTMLElement;
+	lastResultEl?: HTMLElement;
+	useCurrentButton?: HTMLButtonElement;
+	startButton?: HTMLButtonElement;
+	stopButton?: HTMLButtonElement;
 }
 
 export class LectureWorkflowSettingTab extends PluginSettingTab {
@@ -32,6 +59,9 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 	private lastSavedSettings: LectureWorkflowSettings;
 	private latestSaveRequest = 0;
 	private saveQueue: Promise<void> = Promise.resolve();
+	private backgroundStateBinding: ScreenshotSettingsStateBinding | null = null;
+	private backgroundScreenshotUi: BackgroundScreenshotUi | null = null;
+	private backgroundElapsedTimer: number | null = null;
 
 	constructor(app: App, plugin: SettingsPlugin) {
 		super(app, plugin);
@@ -44,12 +74,13 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 			{
 				name: 'Lecture Workflow 设置',
 				desc: '课堂笔记保存与 AI Provider 配置。',
-				render: (setting) => {
+					render: (setting) => {
 					setting.settingEl.empty();
 					const container = setting.settingEl.createDiv({
 						cls: 'lecture-workflow-settings-container',
 					});
 					this.renderSettings(container);
+					this.ensureBackgroundScreenshotSubscription();
 				},
 			},
 		];
@@ -58,6 +89,15 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 	display(): void {
 		this.containerEl.empty();
 		this.renderSettings(this.containerEl);
+		this.ensureBackgroundScreenshotSubscription();
+	}
+
+	hide(): void {
+		this.backgroundStateBinding?.close();
+		this.backgroundStateBinding = null;
+		this.clearBackgroundUiTimers();
+		this.backgroundScreenshotUi = null;
+		super.hide();
 	}
 
 	private renderSettings(containerEl: HTMLElement): void {
@@ -77,6 +117,8 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 						});
 					}),
 			);
+
+		this.renderBackgroundScreenshotSettings(containerEl);
 
 		new Setting(containerEl).setName('AI 设置').setHeading();
 		containerEl.createEl('p', {
@@ -160,6 +202,187 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		this.renderDeepSeekSettings(containerEl, settings);
 		this.renderQwenSettings(containerEl, settings);
 		this.renderCustomSettings(containerEl, settings);
+	}
+
+	private renderBackgroundScreenshotSettings(containerEl: HTMLElement): void {
+		const state = this.getBackgroundScreenshotState();
+		new Setting(containerEl).setName('后台课堂截图').setHeading();
+		containerEl.createEl('p', {
+			text: '日常上课可直接通过左侧 Lecture Workflow 图标启动或停止课堂监听；此处主要用于配置目标和查看详细状态。',
+		});
+		containerEl.createEl('p', {
+			text: '启动后可切换到网课页面，使用 Snipaste Ctrl+1 或 Windows Win+Shift+S 截图。插件只检测新复制的图片，不读取文字，也不会上传图片。',
+		});
+
+		const statusSetting = new Setting(containerEl)
+			.setName('当前状态')
+			.setDesc(backgroundScreenshotStateLabel(state));
+		const targetSetting = new Setting(containerEl)
+			.setName('目标课堂笔记')
+			.setDesc(state.targetPath ?? '未选择');
+		const startedAtSetting = new Setting(containerEl)
+			.setName('会话开始时间')
+			.setDesc(formatSessionStart(state.startedAt));
+		const elapsedSetting = new Setting(containerEl)
+			.setName('已运行时长')
+			.setDesc(formatSessionElapsed(state));
+		const detectedSetting = new Setting(containerEl)
+			.setName('本次已检测截图数量')
+			.setDesc(`${state.detectedCount} 张`);
+		const savedSetting = new Setting(containerEl)
+			.setName('已保存数量')
+			.setDesc(`${state.savedCount} 张`);
+		const insertedSetting = new Setting(containerEl)
+			.setName('已插入数量')
+			.setDesc(`${state.insertedCount} 张`);
+		const failedSetting = new Setting(containerEl)
+			.setName('失败数量')
+			.setDesc(`${state.failedCount} 张`);
+		const lastDetectionSetting = new Setting(containerEl)
+			.setName('最近截图尺寸')
+			.setDesc(formatLastDetection(state));
+		const lastSavedPathSetting = new Setting(containerEl)
+			.setName('最近保存路径')
+			.setDesc(state.lastSavedPath ?? '无');
+		const lastErrorSetting = new Setting(containerEl)
+			.setName('最近错误')
+			.setDesc(state.lastError ?? '无');
+		const lastResultSetting = new Setting(containerEl)
+			.setName('最近一次结果')
+			.setDesc(formatLastResult(state));
+
+		const controls = new Setting(containerEl)
+			.setName('课堂截图会话')
+			.setDesc('这是临时运行状态；插件重新加载、卸载或应用关闭后会自动停止。');
+		let useCurrentButton: HTMLButtonElement | undefined;
+		let startButton: HTMLButtonElement | undefined;
+		let stopButton: HTMLButtonElement | undefined;
+		controls.addButton((button) => {
+				useCurrentButton = button.buttonEl;
+				button
+					.setButtonText('使用当前笔记')
+					.setDisabled(state.status === 'listening')
+					.onClick(() => {
+						this.lectureWorkflowPlugin.useCurrentNoteForBackgroundScreenshots?.();
+					});
+			})
+			.addButton((button) => {
+				startButton = button.buttonEl;
+				button
+					.setButtonText('开始监听')
+					.setDisabled(state.status === 'listening')
+					.onClick(() => {
+						this.lectureWorkflowPlugin.startBackgroundScreenshotSession?.();
+					});
+			})
+			.addButton((button) => {
+				stopButton = button.buttonEl;
+				button
+					.setButtonText('停止监听')
+					.setDisabled(state.status !== 'listening')
+					.onClick(() => {
+						this.lectureWorkflowPlugin.stopBackgroundScreenshotSession?.();
+					});
+			});
+
+		this.backgroundScreenshotUi = {
+			statusEl: statusSetting.descEl,
+			targetEl: targetSetting.descEl,
+			startedAtEl: startedAtSetting.descEl,
+			elapsedEl: elapsedSetting.descEl,
+			detectedEl: detectedSetting.descEl,
+			savedEl: savedSetting.descEl,
+			insertedEl: insertedSetting.descEl,
+			failedEl: failedSetting.descEl,
+			lastDetectionEl: lastDetectionSetting.descEl,
+			lastSavedPathEl: lastSavedPathSetting.descEl,
+			lastErrorEl: lastErrorSetting.descEl,
+			lastResultEl: lastResultSetting.descEl,
+			useCurrentButton,
+			startButton,
+			stopButton,
+		};
+		this.applyBackgroundScreenshotState(state);
+		this.ensureBackgroundElapsedTimer();
+	}
+
+	private ensureBackgroundScreenshotSubscription(): void {
+		if (this.backgroundStateBinding) {
+			return;
+		}
+		if (!this.lectureWorkflowPlugin.onBackgroundScreenshotStateChange) {
+			return;
+		}
+		this.backgroundStateBinding = new ScreenshotSettingsStateBinding({
+			readState: () => this.getBackgroundScreenshotState(),
+			subscribe: (listener) =>
+				this.lectureWorkflowPlugin.onBackgroundScreenshotStateChange?.(listener)
+				?? (() => undefined),
+			apply: (state) => this.applyBackgroundScreenshotState(state),
+			schedule: (callback, delayMs) => typeof window === 'undefined'
+				? runImmediately(callback)
+				: window.setTimeout(callback, delayMs),
+			cancel: (timerId) => {
+				if (typeof window !== 'undefined') {
+					window.clearTimeout(timerId);
+				}
+			},
+		});
+		this.backgroundStateBinding.open();
+	}
+
+	private applyBackgroundScreenshotState(state: ScreenshotBackgroundState): void {
+		const ui = this.backgroundScreenshotUi;
+		if (!ui) {
+			return;
+		}
+		setDynamicText(ui.statusEl, backgroundScreenshotStateLabel(state));
+		setDynamicText(ui.targetEl, state.targetPath ?? '未选择');
+		setDynamicText(ui.startedAtEl, formatSessionStart(state.startedAt));
+		setDynamicText(ui.elapsedEl, formatSessionElapsed(state));
+		setDynamicText(ui.detectedEl, `${state.detectedCount} 张`);
+		setDynamicText(ui.savedEl, `${state.savedCount} 张`);
+		setDynamicText(ui.insertedEl, `${state.insertedCount} 张`);
+		setDynamicText(ui.failedEl, `${state.failedCount} 张`);
+		setDynamicText(ui.lastDetectionEl, formatLastDetection(state));
+		setDynamicText(ui.lastSavedPathEl, state.lastSavedPath ?? '无');
+		setDynamicText(ui.lastErrorEl, state.lastError ?? '无');
+		setDynamicText(ui.lastResultEl, formatLastResult(state));
+		if (ui.useCurrentButton) {
+			ui.useCurrentButton.disabled = state.status === 'listening';
+		}
+		if (ui.startButton) {
+			ui.startButton.disabled = state.status === 'listening';
+		}
+		if (ui.stopButton) {
+			ui.stopButton.disabled = state.status !== 'listening';
+		}
+	}
+
+	private ensureBackgroundElapsedTimer(): void {
+		if (this.backgroundElapsedTimer !== null || typeof window === 'undefined') {
+			return;
+		}
+		this.backgroundElapsedTimer = window.setInterval(() => {
+			const state = this.getBackgroundScreenshotState();
+			setDynamicText(this.backgroundScreenshotUi?.elapsedEl, formatSessionElapsed(state));
+		}, 1_000);
+	}
+
+	private clearBackgroundUiTimers(): void {
+		if (typeof window === 'undefined') {
+			this.backgroundElapsedTimer = null;
+			return;
+		}
+		if (this.backgroundElapsedTimer !== null) {
+			window.clearInterval(this.backgroundElapsedTimer);
+			this.backgroundElapsedTimer = null;
+		}
+	}
+
+	private getBackgroundScreenshotState(): ScreenshotBackgroundState {
+		return this.lectureWorkflowPlugin.getBackgroundScreenshotState?.()
+			?? emptyBackgroundScreenshotState();
 	}
 
 	private renderVisionSettings(containerEl: HTMLElement, settings: LectureWorkflowSettings): void {
@@ -375,4 +598,85 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 
 function cloneSettings(settings: LectureWorkflowSettings): LectureWorkflowSettings {
 	return JSON.parse(JSON.stringify(settings)) as LectureWorkflowSettings;
+}
+
+function backgroundScreenshotStateLabel(state: ScreenshotBackgroundState): string {
+	if (state.status === 'listening') {
+		return '监听中';
+	}
+	if (state.status === 'unsupported') {
+		return '当前环境不支持';
+	}
+	return '未启动';
+}
+
+function emptyBackgroundScreenshotState(): ScreenshotBackgroundState {
+	return {
+		status: 'idle',
+		sessionId: null,
+		startedAt: null,
+		endedAt: null,
+		targetPath: null,
+		targetName: null,
+		detectedCount: 0,
+		savedCount: 0,
+		insertedCount: 0,
+		failedCount: 0,
+		lastDetection: null,
+		lastSavedPath: null,
+		lastError: null,
+		events: [],
+	};
+}
+
+function formatSessionStart(startedAt: Date | null): string {
+	return startedAt ? startedAt.toLocaleString() : '未开始';
+}
+
+function formatSessionElapsed(state: ScreenshotBackgroundState): string {
+	if (!state.startedAt) {
+		return '00:00:00';
+	}
+	const endTime = state.status === 'listening'
+		? Date.now()
+		: (state.endedAt?.getTime() ?? state.startedAt.getTime());
+	const totalSeconds = Math.max(0, Math.floor((endTime - state.startedAt.getTime()) / 1_000));
+	const hours = Math.floor(totalSeconds / 3_600);
+	const minutes = Math.floor((totalSeconds % 3_600) / 60);
+	const seconds = totalSeconds % 60;
+	return [hours, minutes, seconds]
+		.map((value) => String(value).padStart(2, '0'))
+		.join(':');
+}
+
+function formatLastDetection(state: ScreenshotBackgroundState): string {
+	return state.lastDetection
+		? `${state.lastDetection.width}×${state.lastDetection.height}`
+		: '无';
+}
+
+function formatLastResult(state: ScreenshotBackgroundState): string {
+	const event = state.events.at(-1);
+	if (!event) {
+		return '无';
+	}
+	if (event.status === 'inserted') {
+		return `已保存并写入时间线 · ${event.eventId}`;
+	}
+	if (event.status === 'saved') {
+		return `图片已保存，时间线待处理 · ${event.eventId}`;
+	}
+	if (event.status === 'failed') {
+		return `失败 · ${event.eventId}`;
+	}
+	return `正在处理 · ${event.eventId}`;
+}
+
+function setDynamicText(element: HTMLElement | undefined, text: string): void {
+	element?.setText(text);
+}
+
+function runImmediately(callback: () => void): number {
+	callback();
+	return 0;
 }

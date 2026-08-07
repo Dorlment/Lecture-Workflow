@@ -41,3 +41,55 @@
 	resize: vertical;
 	font-family: var(--font-monospace);
 }
+
+.lecture-workflow-screenshot-modal {
+	min-width: min(42rem, 90vw);
+}
+
+.lecture-workflow-screenshot-instruction,
+.lecture-workflow-screenshot-status {
+	color: var(--text-muted);
+}
+
+.lecture-workflow-screenshot-paste-area {
+	padding: 1rem;
+	border: 1px dashed var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+	text-align: center;
+}
+
+.lecture-workflow-screenshot-paste-area:focus {
+	border-color: var(--interactive-accent);
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+}
+
+.lecture-workflow-screenshot-preview {
+	display: flex;
+	justify-content: center;
+	margin-top: 1rem;
+	max-height: 50vh;
+	overflow: auto;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary-alt);
+}
+
+.lecture-workflow-screenshot-preview.is-hidden {
+	display: none;
+}
+
+.lecture-workflow-screenshot-preview img {
+	display: block;
+	max-width: 100%;
+	height: auto;
+}
+
+.lecture-workflow-screenshot-actions {
+	border-top: 0;
+}
+
+.lecture-workflow-screenshot-actions .setting-item-control {
+	justify-content: flex-end;
+}
