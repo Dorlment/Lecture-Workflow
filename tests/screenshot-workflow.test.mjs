@@ -536,7 +536,7 @@ test('cancel closes the paste Modal without invoking the save handler', async ()
 	assert.match(modalSource, /private async save\(\)[\s\S]*?this\.onSave\(image\)/);
 });
 
-test('the production service uses Vault APIs and declares the createFolder minimum version', async () => {
+test('the production service uses Vault APIs and declares the current public API minimum version', async () => {
 	const [serviceSource, manifestSource] = await Promise.all([
 		readFile('screenshot-service.ts', 'utf8'),
 		readFile('manifest.json', 'utf8'),
@@ -545,5 +545,5 @@ test('the production service uses Vault APIs and declares the createFolder minim
 	assert.match(serviceSource, /vault\.createFolder\(/);
 	assert.match(serviceSource, /vault\.createBinary\(/);
 	assert.match(serviceSource, /fileManager\.generateMarkdownLink\(/);
-	assert.equal(JSON.parse(manifestSource).minAppVersion, '1.4.0');
+	assert.equal(JSON.parse(manifestSource).minAppVersion, '1.7.2');
 });

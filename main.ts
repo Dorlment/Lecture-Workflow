@@ -4,8 +4,13 @@ import {
 	Platform,
 	Plugin,
 	TFile,
+	type WorkspaceLeaf,
 } from 'obsidian';
 
+import {
+	AudioCaptureProbe,
+	createBrowserAudioCaptureProbe,
+} from './audio-capture-probe';
 import { AiPreviewModal } from './ai-preview-modal';
 import { AiRetryModal } from './ai-retry-modal';
 import {
@@ -29,6 +34,18 @@ import {
 	ClassroomSessionController,
 	classroomSessionMenuTitle,
 } from './classroom-session-controller';
+import {
+	CLASSROOM_WORKBENCH_VIEW_TYPE,
+	ClassroomWorkbenchView,
+} from './classroom-workbench-view';
+import {
+	dismissClassroomWorkbench,
+	getClassroomWorkbenchDismissMode,
+} from './classroom-workbench-dismiss';
+import {
+	ClassroomWorkbenchOpenError,
+	ClassroomWorkbenchOpener,
+} from './classroom-workbench-opener';
 import {
 	isNoteConflictError,
 	isNoteLatestReadError,
@@ -74,6 +91,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 	private readonly aiWorkflowGate = new AiWorkflowGate();
 	private activeVisionAbortController: AbortController | null = null;
 	private classroomSessionController: ClassroomSessionController<TFile> | null = null;
+	private audioCaptureProbe: AudioCaptureProbe | null = null;
+	private classroomWorkbenchOpener: ClassroomWorkbenchOpener<WorkspaceLeaf> | null = null;
 	private screenshotBackgroundService: ObsidianBackgroundScreenshotService | null = null;
 	private screenshotStatusBarEl: HTMLElement | null = null;
 	private unsubscribeScreenshotState: (() => void) | null = null;
@@ -81,6 +100,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		this.initializeScreenshotBackgroundSession();
+		this.audioCaptureProbe = createBrowserAudioCaptureProbe(() => Platform.isDesktopApp);
+		this.registerClassroomWorkbenchView();
+		this.classroomWorkbenchOpener = new ClassroomWorkbenchOpener(
+			this.app.workspace,
+			CLASSROOM_WORKBENCH_VIEW_TYPE,
+		);
 
 		this.addCommand({
 			id: 'create-lecture-note',
@@ -100,6 +125,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 			callback: () => this.toggleClassroomListening(),
 		});
 
+		this.addCommand({
+			id: 'open-classroom-workbench',
+			name: '打开课堂工作台',
+			callback: () => this.openClassroomWorkbench(),
+		});
+
 		this.addRibbonIcon('notebook-pen', 'Lecture Workflow', (event) => {
 			this.showRibbonMenu(event);
 		});
@@ -108,6 +139,9 @@ export default class LectureWorkflowPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		this.classroomWorkbenchOpener = null;
+		this.audioCaptureProbe?.dispose();
+		this.audioCaptureProbe = null;
 		this.classroomSessionController?.dispose();
 		this.classroomSessionController = null;
 		this.screenshotBackgroundService?.dispose();
@@ -437,6 +471,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 		);
 		menu.addItem((item) =>
 			item
+				.setTitle('打开课堂工作台')
+				.setIcon('panel-right')
+				.onClick(() => this.openClassroomWorkbench()),
+		);
+		menu.addItem((item) =>
+			item
 				.setTitle('创建课堂笔记')
 				.setIcon('file-plus-2')
 				.onClick(() => this.openCreateLectureNoteModal()),
@@ -448,6 +488,48 @@ export default class LectureWorkflowPlugin extends Plugin {
 				.onClick(() => this.runAiWorkflow()),
 		);
 		menu.showAtMouseEvent(event);
+	}
+
+	private registerClassroomWorkbenchView(): void {
+		this.registerView(CLASSROOM_WORKBENCH_VIEW_TYPE, (leaf) => {
+			const audioProbe = this.audioCaptureProbe;
+			if (!audioProbe) {
+				throw new Error('Audio capture probe is not initialized.');
+			}
+			return new ClassroomWorkbenchView(leaf, {
+				getClassroomState: () => this.getBackgroundScreenshotState(),
+				subscribeClassroom: (listener) =>
+					this.onBackgroundScreenshotStateChange(listener),
+				startClassroom: () => this.startBackgroundScreenshotSession(),
+				stopClassroom: () => this.stopBackgroundScreenshotSession(),
+				getDismissMode: () => getClassroomWorkbenchDismissMode(
+					this.app.workspace.rightSplit,
+				),
+				dismissWorkbench: () => dismissClassroomWorkbench(
+					this.app.workspace.rightSplit,
+					leaf,
+				),
+			}, audioProbe);
+		});
+	}
+
+	private async openClassroomWorkbench(): Promise<void> {
+		try {
+			const opener = this.classroomWorkbenchOpener;
+			if (!opener) {
+				throw new ClassroomWorkbenchOpenError('create-leaf');
+			}
+			await opener.open();
+		} catch (error) {
+			const stage = error instanceof ClassroomWorkbenchOpenError
+				? error.stage
+				: 'unknown';
+			console.error('Lecture Workflow: classroom workbench open failed', {
+				type: safeErrorType(error),
+				stage,
+			});
+			new Notice('无法打开课堂工作台，请重新加载插件后重试。');
+		}
 	}
 
 	private async runAiWorkflow(): Promise<void> {
@@ -895,4 +977,11 @@ function mobileScreenshotUnsupportedMessage(): string {
 
 function backgroundScreenshotUnsupportedMessage(): string {
 	return '当前 Obsidian 版本不支持后台剪贴板图片监听，请使用手动导入方式。';
+}
+
+function safeErrorType(error: unknown): string {
+	if (error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(error.name)) {
+		return error.name;
+	}
+	return 'UnknownError';
 }

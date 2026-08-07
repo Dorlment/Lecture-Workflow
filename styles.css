@@ -93,3 +93,216 @@
 .lecture-workflow-screenshot-actions .setting-item-control {
 	justify-content: flex-end;
 }
+
+.lecture-workflow-classroom-workbench {
+	width: 100%;
+	max-width: 100%;
+	box-sizing: border-box;
+	min-width: 0;
+	overflow-x: hidden;
+	container-type: inline-size;
+}
+
+.lecture-workflow-workbench-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	min-width: 0;
+	margin-block-end: 0.75rem;
+}
+
+.lecture-workflow-workbench-header h2 {
+	min-width: 0;
+	margin: 0;
+	font-size: var(--font-ui-large);
+	line-height: var(--line-height-tight);
+}
+
+.lecture-workflow-workbench-dismiss {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+
+.lecture-workflow-workbench-summary,
+.lecture-workflow-workbench-card {
+	min-width: 0;
+	box-sizing: border-box;
+	padding: 0.75rem;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+}
+
+.lecture-workflow-workbench-summary {
+	margin-block-end: 0.75rem;
+}
+
+.lecture-workflow-workbench-summary p {
+	margin: 0;
+}
+
+.lecture-workflow-workbench-summary-primary {
+	overflow: hidden;
+	min-width: 0;
+	font-weight: var(--font-semibold);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.lecture-workflow-workbench-summary-secondary,
+.lecture-workflow-workbench-help,
+.lecture-workflow-audio-privacy {
+	color: var(--text-muted);
+}
+
+.lecture-workflow-workbench-summary-secondary {
+	margin-block-start: 0.25rem !important;
+}
+
+.lecture-workflow-workbench-card + .lecture-workflow-workbench-card {
+	margin-block-start: 0.75rem;
+}
+
+.lecture-workflow-workbench-card h3 {
+	margin: 0 0 0.625rem;
+	font-size: var(--font-ui-medium);
+}
+
+.lecture-workflow-workbench-help,
+.lecture-workflow-audio-privacy {
+	margin-block: 0.625rem;
+	overflow-wrap: anywhere;
+}
+
+.lecture-workflow-workbench-actions {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+.lecture-workflow-workbench-actions button {
+	width: 100%;
+	min-width: 0;
+	white-space: nowrap;
+}
+
+.lecture-workflow-workbench-stop-audio {
+	grid-column: 1 / -1;
+}
+
+.lecture-workflow-workbench-details {
+	min-width: 0;
+	margin-block-start: 0.625rem;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.lecture-workflow-workbench-details summary {
+	padding-block: 0.625rem 0.25rem;
+	cursor: pointer;
+	color: var(--text-muted);
+	font-weight: var(--font-medium);
+}
+
+.lecture-workflow-workbench-detail {
+	display: grid;
+	grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+	gap: 0.5rem;
+	padding-block: 0.25rem;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.lecture-workflow-workbench-detail > :last-child {
+	min-width: 0;
+	overflow-wrap: anywhere;
+	color: var(--text-muted);
+	text-align: end;
+}
+
+.lecture-workflow-workbench-detail > .is-session-id,
+.lecture-workflow-workbench-detail > .is-error {
+	word-break: break-word;
+}
+
+.lecture-workflow-workbench-detail > .is-path {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.lecture-workflow-workbench-status-row {
+	display: flex;
+	gap: 0.25rem;
+	min-width: 0;
+	margin-block: 0.25rem;
+}
+
+.lecture-workflow-workbench-status-row > :last-child {
+	min-width: 0;
+	overflow-wrap: anywhere;
+	font-weight: var(--font-medium);
+}
+
+.lecture-workflow-audio-input-field {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 0.375rem;
+	min-width: 0;
+	margin-block: 0.75rem 0.25rem;
+	font-weight: var(--font-medium);
+}
+
+.lecture-workflow-audio-input-field select {
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+}
+
+.lecture-workflow-system-audio-capability {
+	min-width: 0;
+	margin-block-start: 0.75rem;
+	padding-block-start: 0.75rem;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.lecture-workflow-system-audio-capability h4 {
+	margin: 0 0 0.5rem;
+	font-size: var(--font-ui-small);
+}
+
+.lecture-workflow-system-audio-capability button {
+	width: 100%;
+	max-width: 100%;
+	white-space: normal;
+}
+
+.lecture-workflow-audio-volume {
+	min-width: 0;
+	margin-block: 0.75rem;
+}
+
+.lecture-workflow-audio-volume-header {
+	display: flex;
+	justify-content: space-between;
+	gap: 0.5rem;
+	margin-block-end: 0.25rem;
+}
+
+.lecture-workflow-audio-volume progress {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+	accent-color: var(--interactive-accent);
+}
+
+@container (max-width: 22rem) {
+	.lecture-workflow-workbench-detail {
+		grid-template-columns: 1fr;
+	}
+
+	.lecture-workflow-workbench-detail > :last-child {
+		text-align: start;
+	}
+}
