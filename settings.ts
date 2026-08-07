@@ -9,38 +9,17 @@ import type { SettingDefinitionItem } from 'obsidian';
 
 import type { TextProviderId } from './provider-types';
 import {
-	DEEPSEEK_DEFAULT_BASE_URL,
-	DEEPSEEK_DEFAULT_MODEL,
-	QWEN_DEFAULT_MODEL,
 	buildQwenBaseUrl,
 } from './providers/text-providers';
 import { ProviderRegistry } from './providers/registry';
 import { ObsidianHttpClient } from './providers/obsidian-http';
+import {
+	DEFAULT_SETTINGS,
+	normalizeVisionImageCount,
+} from './settings-data';
 import type { LectureWorkflowSettings } from './types';
 
-export const DEFAULT_SETTINGS: LectureWorkflowSettings = {
-	notesFolder: '课堂笔记',
-	setupMode: 'recommended',
-	temperature: 0.3,
-	requestTimeoutMs: 150_000,
-	advancedTextProvider: 'deepseek',
-	deepseek: {
-		apiKey: '',
-		baseUrl: DEEPSEEK_DEFAULT_BASE_URL,
-		model: DEEPSEEK_DEFAULT_MODEL,
-	},
-	qwen: {
-		apiKey: '',
-		region: 'cn-beijing',
-		workspaceId: '',
-		model: QWEN_DEFAULT_MODEL,
-	},
-	customOpenAI: {
-		apiKey: '',
-		baseUrl: '',
-		model: '',
-	},
-};
+export { DEFAULT_SETTINGS } from './settings-data';
 
 interface SettingsPlugin extends Plugin {
 	settings: LectureWorkflowSettings;
@@ -162,7 +141,7 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('高级模式文字提供商')
-			.setDesc('仅在高级模式生效。视觉和语音提供商将在后续版本提供。')
+			.setDesc('仅控制高级模式下的文字 Provider，不影响独立的视觉 Provider。')
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOption('deepseek', 'DeepSeek')
@@ -176,13 +155,84 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(containerEl)
-			.setName('视觉与语音提供商')
-			.setDesc('后续版本支持；本版本不会上传图片、访问麦克风或发送语音。');
+		this.renderVisionSettings(containerEl, settings);
 
 		this.renderDeepSeekSettings(containerEl, settings);
 		this.renderQwenSettings(containerEl, settings);
 		this.renderCustomSettings(containerEl, settings);
+	}
+
+	private renderVisionSettings(containerEl: HTMLElement, settings: LectureWorkflowSettings): void {
+		new Setting(containerEl).setName('图片参与 AI 整理').setHeading();
+		containerEl.createEl('p', {
+			text: '启用后，当前笔记引用的图片会发送给所选第三方模型服务商，可能产生额外 Token 或调用费用。插件不会把图片上传到公共图床；关闭开关时不会读取或发送图片。',
+			cls: 'lecture-workflow-secret-warning',
+		});
+
+		new Setting(containerEl)
+			.setName('启用图片参与整理')
+			.setDesc('默认关闭。只有启用后，后续视觉流程才允许取得视觉 Provider。')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(settings.enableVisionInput)
+					.onChange(async (value) => {
+						await this.updateSettings((next) => {
+							next.enableVisionInput = value;
+						}, true);
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('视觉 Provider')
+			.setDesc('与简易、推荐和高级文字配置模式完全独立。')
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption('qwen', 'Qwen')
+					.addOption('custom', '自定义 OpenAI-compatible')
+					.setValue(settings.visionProvider)
+					.onChange(async (value) => {
+						await this.updateSettings((next) => {
+							next.visionProvider = value as LectureWorkflowSettings['visionProvider'];
+						}, true);
+					});
+				dropdown.selectEl.disabled = !settings.enableVisionInput;
+			});
+
+		if (settings.visionProvider === 'qwen') {
+			new Setting(containerEl)
+				.setName('Qwen 视觉模型')
+				.setDesc('仅用于视觉请求，不修改现有 Qwen 文字模型。')
+				.addText((text) => {
+					text.inputEl.disabled = !settings.enableVisionInput;
+					text
+						.setPlaceholder(DEFAULT_SETTINGS.qwen.visionModel)
+						.setValue(settings.qwen.visionModel)
+						.onChange(async (value) => {
+							await this.updateSettings((next) => {
+								next.qwen.visionModel = value.trim();
+							});
+						});
+				});
+		}
+
+		new Setting(containerEl)
+			.setName('最大图片数量')
+			.setDesc('允许 1～10 张；无效输入会恢复为合法值。')
+			.addText((text) => {
+				text.inputEl.type = 'number';
+				text.inputEl.min = '1';
+				text.inputEl.max = '10';
+				text.inputEl.disabled = !settings.enableVisionInput;
+				text.setValue(String(settings.maxVisionImages)).onChange(async (value) => {
+					const normalized = normalizeVisionImageCount(Number(value));
+					await this.updateSettings((next) => {
+						next.maxVisionImages = normalized;
+					});
+					if (value !== String(normalized)) {
+						text.setValue(String(normalized));
+					}
+				});
+			});
 	}
 
 	private renderDeepSeekSettings(containerEl: HTMLElement, settings: LectureWorkflowSettings): void {
@@ -241,6 +291,16 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		this.addTextSetting(containerEl, 'Model', settings.customOpenAI.model, async (value) => {
 			await this.updateSettings((next) => { next.customOpenAI.model = value.trim(); });
 		});
+		new Setting(containerEl)
+			.setName('自定义 Provider 支持图片')
+			.setDesc('仅在确认该模型兼容 OpenAI 图像输入格式时开启。该开关只是用户声明，插件无法保证服务端兼容。')
+			.addToggle((toggle) =>
+				toggle.setValue(settings.customOpenAI.supportsVision).onChange(async (value) => {
+					await this.updateSettings((next) => {
+						next.customOpenAI.supportsVision = value;
+					}, true);
+				}),
+			);
 		this.addTestButton(containerEl, '测试自定义连接', 'custom');
 	}
 
@@ -295,13 +355,12 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 				if (rerender && requestNumber === this.latestSaveRequest) {
 					this.rerenderSettings();
 				}
-			} catch (error) {
+			} catch {
 				this.lectureWorkflowPlugin.settings = cloneSettings(this.lastSavedSettings);
 				if (requestNumber === this.latestSaveRequest) {
 					this.rerenderSettings();
 				}
-				const message = error instanceof Error ? error.message : String(error);
-				new Notice(`保存设置失败，已恢复之前的配置：${message}`);
+				new Notice('保存设置失败，已恢复之前的配置。');
 			}
 		});
 		this.saveQueue = operation;

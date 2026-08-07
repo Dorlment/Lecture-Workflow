@@ -1,4 +1,8 @@
-import type { ProviderErrorCode, TextProviderId } from './provider-types';
+import type {
+	ProviderErrorCode,
+	TextProviderId,
+	VisionProviderId,
+} from './provider-types';
 
 export interface AiRetryOption {
 	providerId: TextProviderId;
@@ -69,6 +73,20 @@ export function buildRetryOptions(
 		sameProvider,
 		{ providerId: 'qwen', label: '改用 Qwen 重试' },
 	];
+}
+
+export function buildVisionRetryOptions(
+	failedProviderId: VisionProviderId,
+	qwenConfigured: boolean,
+): AiRetryOption[] {
+	const options: AiRetryOption[] = [{
+		providerId: failedProviderId,
+		label: `使用 ${failedProviderId === 'qwen' ? 'Qwen-VL' : 'Custom Vision'} 重试`,
+	}];
+	if (failedProviderId === 'custom' && qwenConfigured) {
+		options.push({ providerId: 'qwen', label: '改用 Qwen-VL 重试' });
+	}
+	return options;
 }
 
 function providerLabel(id: TextProviderId): string {

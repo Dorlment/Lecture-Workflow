@@ -1,4 +1,9 @@
-import type { QwenRegion, SetupMode, TextProviderId } from './provider-types';
+import type {
+	QwenRegion,
+	SetupMode,
+	TextProviderId,
+	VisionProviderId,
+} from './provider-types';
 
 export interface LectureWorkflowSettings {
 	notesFolder: string;
@@ -6,6 +11,9 @@ export interface LectureWorkflowSettings {
 	temperature: number;
 	requestTimeoutMs: number;
 	advancedTextProvider: TextProviderId;
+	enableVisionInput: boolean;
+	visionProvider: VisionProviderId;
+	maxVisionImages: number;
 	deepseek: {
 		apiKey: string;
 		baseUrl: string;
@@ -16,11 +24,13 @@ export interface LectureWorkflowSettings {
 		region: QwenRegion;
 		workspaceId: string;
 		model: string;
+		visionModel: string;
 	};
 	customOpenAI: {
 		apiKey: string;
 		baseUrl: string;
 		model: string;
+		supportsVision: boolean;
 	};
 }
 
