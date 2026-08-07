@@ -1,10 +1,21 @@
 import type { LectureWorkflowSettings } from '../types';
-import type { HttpClient, TextProvider, TextProviderId } from '../provider-types';
+import type {
+	HttpClient,
+	TextProvider,
+	TextProviderId,
+	VisionProvider,
+	VisionProviderId,
+} from '../provider-types';
+import { ProviderError } from '../provider-types';
 import {
 	CustomOpenAICompatibleTextProvider,
 	DeepSeekTextProvider,
 	QwenTextProvider,
 } from './text-providers';
+import {
+	CustomOpenAICompatibleVisionProvider,
+	QwenVisionProvider,
+} from './vision-providers';
 
 export class ProviderRegistry {
 	constructor(
@@ -32,6 +43,50 @@ export class ProviderRegistry {
 			return new QwenTextProvider({ ...this.settings.qwen, ...common }, this.httpClient);
 		}
 		return new CustomOpenAICompatibleTextProvider(
+			{ ...this.settings.customOpenAI, ...common },
+			this.httpClient,
+		);
+	}
+
+	getSelectedVisionProvider(): VisionProvider {
+		return this.getVisionProvider(this.settings.visionProvider);
+	}
+
+	getVisionProvider(id: VisionProviderId): VisionProvider {
+		if (!this.settings.enableVisionInput) {
+			throw new ProviderError('图片参与 AI 整理尚未启用。', 'configuration');
+		}
+		if (id !== this.settings.visionProvider) {
+			throw new ProviderError('请求的视觉 Provider 与设置中明确选择的 Provider 不一致。', 'configuration');
+		}
+		return this.createVisionProvider(id);
+	}
+
+	getVisionProviderForConfirmedRetry(id: VisionProviderId): VisionProvider {
+		if (!this.settings.enableVisionInput) {
+			throw new ProviderError('图片参与 AI 整理尚未启用。', 'configuration');
+		}
+		return this.createVisionProvider(id);
+	}
+
+	private createVisionProvider(id: VisionProviderId): VisionProvider {
+		const common = {
+			temperature: this.settings.temperature,
+			timeoutMs: this.settings.requestTimeoutMs,
+		};
+		if (id === 'qwen') {
+			return new QwenVisionProvider({
+				...this.settings.qwen,
+				...common,
+			}, this.httpClient);
+		}
+		if (!this.settings.customOpenAI.supportsVision) {
+			throw new ProviderError(
+				'自定义 Provider 未声明支持 OpenAI 图像输入格式，已阻止视觉请求。',
+				'configuration',
+			);
+		}
+		return new CustomOpenAICompatibleVisionProvider(
 			{ ...this.settings.customOpenAI, ...common },
 			this.httpClient,
 		);

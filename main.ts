@@ -4,14 +4,20 @@ import { AiPreviewModal } from './ai-preview-modal';
 import { AiRetryModal } from './ai-retry-modal';
 import {
 	buildRetryOptions,
+	buildVisionRetryOptions,
 	describeProviderFailure,
 } from './ai-retry';
 import { AiWorkflowGate } from './ai-note';
 import type {
 	AiGenerationSnapshot,
 	AiPreviewData,
+	VisionGenerationSnapshot,
 } from './ai-workflow';
-import { AiWorkflowService } from './ai-workflow';
+import {
+	AiWorkflowService,
+	isVisionWorkflowConflictError,
+	VISION_WORKFLOW_CONFLICT_MESSAGE,
+} from './ai-workflow';
 import { CreateLectureNoteModal } from './modal';
 import {
 	isNoteConflictError,
@@ -19,7 +25,7 @@ import {
 	NOTE_CONFLICT_MESSAGE,
 	NOTE_LATEST_READ_FAILED_MESSAGE,
 } from './note-conflict';
-import type { TextProviderId } from './provider-types';
+import type { TextProviderId, VisionProviderId } from './provider-types';
 import { ProviderError } from './provider-types';
 import { ObsidianHttpClient } from './providers/obsidian-http';
 import { ProviderRegistry } from './providers/registry';
@@ -28,15 +34,25 @@ import {
 	DEFAULT_SETTINGS,
 	LectureWorkflowSettingTab,
 } from './settings';
+import { normalizeSettings } from './settings-data';
 import type {
 	LectureNoteInput,
 	LectureWorkflowSettings,
 } from './types';
+import {
+	VisionConfirmationModal,
+	VisionDisabledChoiceModal,
+} from './vision-confirmation-modal';
+import {
+	decideVisionWorkflowRoute,
+	shouldAcceptVisionResult,
+} from './vision-workflow-routing';
 
 export default class LectureWorkflowPlugin extends Plugin {
 	settings: LectureWorkflowSettings = DEFAULT_SETTINGS;
 	private readonly openModals = new Set<{ close(): void }>();
 	private readonly aiWorkflowGate = new AiWorkflowGate();
+	private activeVisionAbortController: AbortController | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -61,6 +77,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		this.activeVisionAbortController?.abort();
+		this.activeVisionAbortController = null;
 		for (const modal of this.openModals) {
 			modal.close();
 		}
@@ -84,13 +102,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 
 	private async loadSettings(): Promise<void> {
 		const savedSettings = (await this.loadData()) as Partial<LectureWorkflowSettings> | null;
-		this.settings = {
-			...DEFAULT_SETTINGS,
-			...(savedSettings ?? {}),
-			deepseek: { ...DEFAULT_SETTINGS.deepseek, ...savedSettings?.deepseek },
-			qwen: { ...DEFAULT_SETTINGS.qwen, ...savedSettings?.qwen },
-			customOpenAI: { ...DEFAULT_SETTINGS.customOpenAI, ...savedSettings?.customOpenAI },
-		};
+		this.settings = normalizeSettings(savedSettings);
 	}
 
 	private openCreateLectureNoteModal(): void {
@@ -170,12 +182,137 @@ export default class LectureWorkflowPlugin extends Plugin {
 			new Notice(`AI 整理失败：${message}`);
 			return;
 		}
-		await this.performGeneration(
+		const route = decideVisionWorkflowRoute(
+			snapshot.imageReferences.length,
+			this.settings.enableVisionInput,
+		);
+		if (route === 'text-only') {
+			await this.performGeneration(
+				snapshot,
+				service,
+				registry,
+				registry.getActiveTextProviderId(),
+			);
+			return;
+		}
+		if (route === 'offer-text-only') {
+			this.openVisionDisabledChoice(snapshot, service, registry);
+			return;
+		}
+		await this.prepareVisionConfirmation(
 			snapshot,
 			service,
 			registry,
-			registry.getActiveTextProviderId(),
+			this.settings.visionProvider,
+			false,
 		);
+	}
+
+	private openVisionDisabledChoice(
+		snapshot: AiGenerationSnapshot,
+		service: AiWorkflowService,
+		registry: ProviderRegistry,
+	): void {
+		let modal: VisionDisabledChoiceModal;
+		modal = new VisionDisabledChoiceModal(
+			this.app,
+			snapshot.imageReferences.length,
+			() => {
+				void this.performGeneration(
+					snapshot,
+					service,
+					registry,
+					registry.getActiveTextProviderId(),
+				);
+			},
+			(selectedTextOnly) => {
+				this.openModals.delete(modal);
+				if (!selectedTextOnly) {
+					this.aiWorkflowGate.reset();
+				}
+			},
+		);
+		this.openModals.add(modal);
+		modal.open();
+	}
+
+	private async prepareVisionConfirmation(
+		snapshot: AiGenerationSnapshot,
+		service: AiWorkflowService,
+		registry: ProviderRegistry,
+		providerId: VisionProviderId,
+		isRetry: boolean,
+	): Promise<void> {
+		let prepared: VisionGenerationSnapshot | null = null;
+		try {
+			const provider = registry.getVisionProviderForConfirmedRetry(providerId);
+			const validation = provider.validateVision();
+			if (validation.length > 0) {
+				throw new ProviderError(validation.join(' '), 'configuration');
+			}
+			prepared = await service.prepareVision(snapshot, this.settings.maxVisionImages);
+			const summary = {
+				imageCount: prepared.resolvedImages.length,
+				totalBytes: prepared.resolvedImages.reduce((total, image) => total + image.byteLength, 0),
+				vaultPaths: prepared.resolvedImages.map((image) => image.vaultPath),
+				visionProviderId: providerId,
+				visionProviderName: provider.displayName,
+				model: providerId === 'qwen'
+					? this.settings.qwen.visionModel
+					: this.settings.customOpenAI.model,
+				textProviderId: registry.getActiveTextProviderId(),
+				isRetry,
+			};
+			this.openVisionConfirmation(summary, prepared, snapshot, service, registry, providerId);
+		} catch (error) {
+			if (prepared) {
+				service.disposeVisionSnapshot(prepared);
+			}
+			this.aiWorkflowGate.reset();
+			if (error instanceof ProviderError) {
+				const failure = describeProviderFailure(
+					providerId === 'qwen' ? 'Qwen-VL' : 'Custom Vision',
+					error,
+				);
+				new Notice(`图片整理准备失败：${failure.message}`);
+				return;
+			}
+			const message = error instanceof Error ? error.message : '未知错误。';
+			new Notice(`图片整理准备失败：${message}`);
+		}
+	}
+
+	private openVisionConfirmation(
+		summary: ConstructorParameters<typeof VisionConfirmationModal>[1],
+		prepared: VisionGenerationSnapshot,
+		baseSnapshot: AiGenerationSnapshot,
+		service: AiWorkflowService,
+		registry: ProviderRegistry,
+		providerId: VisionProviderId,
+	): void {
+		let modal: VisionConfirmationModal;
+		modal = new VisionConfirmationModal(
+			this.app,
+			summary,
+			() => {
+				void this.performVisionGeneration(
+					prepared,
+					baseSnapshot,
+					service,
+					registry,
+					providerId,
+				);
+			},
+			(confirmed) => {
+				this.openModals.delete(modal);
+				if (!confirmed) {
+					service.disposeVisionSnapshot(prepared);
+					this.aiWorkflowGate.reset();
+				}
+			},
+		);
+		this.openModals.add(modal);
+		modal.open();
 	}
 
 	private async startGenerationFromSnapshot(
@@ -211,6 +348,130 @@ export default class LectureWorkflowPlugin extends Plugin {
 			this.aiWorkflowGate.reset();
 			this.handleGenerationFailure(error, snapshot, service, registry, providerId);
 		}
+	}
+
+	private async performVisionGeneration(
+		prepared: VisionGenerationSnapshot,
+		baseSnapshot: AiGenerationSnapshot,
+		service: AiWorkflowService,
+		registry: ProviderRegistry,
+		providerId: VisionProviderId,
+	): Promise<void> {
+		const controller = new AbortController();
+		this.activeVisionAbortController = controller;
+		try {
+			const provider = registry.getVisionProviderForConfirmedRetry(providerId);
+			new Notice(`正在使用 ${provider.displayName} 同时整理文字稿和课堂图片…`);
+			const preview = await this.aiWorkflowGate.completeWithPreview(
+				() => service.generateVision(prepared, providerId, controller.signal),
+			);
+			if (!shouldAcceptVisionResult(controller.signal)) {
+				this.aiWorkflowGate.reset();
+				return;
+			}
+			if (!preview.isComplete) {
+				new Notice('视觉 AI 结果不完整，已禁止写入；可在预览中复制或重新生成。');
+			}
+			this.openAiPreview(preview, baseSnapshot, service, registry);
+		} catch (error) {
+			this.aiWorkflowGate.reset();
+			if (!controller.signal.aborted) {
+				this.handleVisionGenerationFailure(
+					error,
+					baseSnapshot,
+					service,
+					registry,
+					providerId,
+				);
+			}
+		} finally {
+			service.disposeVisionSnapshot(prepared);
+			if (this.activeVisionAbortController === controller) {
+				this.activeVisionAbortController = null;
+			}
+		}
+	}
+
+	private handleVisionGenerationFailure(
+		error: unknown,
+		snapshot: AiGenerationSnapshot,
+		service: AiWorkflowService,
+		registry: ProviderRegistry,
+		providerId: VisionProviderId,
+	): void {
+		if (isVisionWorkflowConflictError(error)) {
+			new Notice(error.message);
+			return;
+		}
+		if (!(error instanceof ProviderError)) {
+			const message = error instanceof Error ? error.message : '未知错误。';
+			new Notice(`视觉 AI 整理失败：${message}`);
+			return;
+		}
+		const providerName = providerId === 'qwen' ? 'Qwen-VL' : 'Custom Vision';
+		const failure = describeProviderFailure(providerName, error);
+		new Notice(`视觉 AI 整理失败：${failure.message}`);
+		if (!failure.isRetryableConnectionFailure) {
+			return;
+		}
+		let qwenConfigured = false;
+		try {
+			qwenConfigured = registry
+				.getVisionProviderForConfirmedRetry('qwen')
+				.validateVision()
+				.length === 0;
+		} catch {
+			qwenConfigured = false;
+		}
+		this.openVisionRetryModal(
+			failure.message,
+			buildVisionRetryOptions(providerId, qwenConfigured),
+			snapshot,
+			service,
+			registry,
+		);
+	}
+
+	private openVisionRetryModal(
+		failureMessage: string,
+		options: ReturnType<typeof buildVisionRetryOptions>,
+		snapshot: AiGenerationSnapshot,
+		service: AiWorkflowService,
+		registry: ProviderRegistry,
+	): void {
+		let modal: AiRetryModal;
+		modal = new AiRetryModal(
+			this.app,
+			failureMessage,
+			options,
+			(providerId) => {
+				if (providerId === 'qwen' || providerId === 'custom') {
+					void this.startVisionRetry(snapshot, service, registry, providerId);
+				}
+			},
+			() => this.openModals.delete(modal),
+		);
+		this.openModals.add(modal);
+		modal.open();
+	}
+
+	private async startVisionRetry(
+		snapshot: AiGenerationSnapshot,
+		service: AiWorkflowService,
+		registry: ProviderRegistry,
+		providerId: VisionProviderId,
+	): Promise<void> {
+		if (!this.aiWorkflowGate.beginGeneration()) {
+			new Notice('AI 整理正在进行，请勿重复提交。');
+			return;
+		}
+		await this.prepareVisionConfirmation(
+			snapshot,
+			service,
+			registry,
+			providerId,
+			true,
+		);
 	}
 
 	private handleGenerationFailure(
@@ -277,12 +538,20 @@ export default class LectureWorkflowPlugin extends Plugin {
 					new Notice('AI 结构化笔记已写入。');
 					return true;
 				} catch (error) {
+					if (isVisionWorkflowConflictError(error)) {
+						new Notice(VISION_WORKFLOW_CONFLICT_MESSAGE);
+						return false;
+					}
 					if (isNoteConflictError(error)) {
-						new Notice(NOTE_CONFLICT_MESSAGE);
+						new Notice(data.usesVision
+							? VISION_WORKFLOW_CONFLICT_MESSAGE
+							: NOTE_CONFLICT_MESSAGE);
 						return false;
 					}
 					if (isNoteLatestReadError(error)) {
-						new Notice(NOTE_LATEST_READ_FAILED_MESSAGE);
+						new Notice(data.usesVision
+							? VISION_WORKFLOW_CONFLICT_MESSAGE
+							: NOTE_LATEST_READ_FAILED_MESSAGE);
 						return false;
 					}
 					const message = error instanceof Error ? error.message : String(error);
@@ -291,12 +560,22 @@ export default class LectureWorkflowPlugin extends Plugin {
 				}
 			},
 			() => {
-				void this.startGenerationFromSnapshot(
-					snapshot,
-					service,
-					registry,
-					preview.providerId,
-				);
+				if (preview.usesVision
+					&& (preview.providerId === 'qwen' || preview.providerId === 'custom')) {
+					void this.startVisionRetry(
+						snapshot,
+						service,
+						registry,
+						preview.providerId,
+					);
+				} else {
+					void this.startGenerationFromSnapshot(
+						snapshot,
+						service,
+						registry,
+						preview.providerId,
+					);
+				}
 			},
 			() => {
 				this.openModals.delete(modal);

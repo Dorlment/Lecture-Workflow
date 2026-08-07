@@ -1,5 +1,6 @@
 export type SetupMode = 'simple' | 'recommended' | 'advanced';
 export type TextProviderId = 'deepseek' | 'qwen' | 'custom';
+export type VisionProviderId = 'qwen' | 'custom';
 export type QwenRegion = 'cn-beijing';
 
 export interface ProviderCapabilities {
@@ -19,18 +20,40 @@ export interface TextGenerationResult {
 	finishReason: string | null;
 }
 
+export type ProviderResponse = TextGenerationResult;
+
+export interface VisionImageInput {
+	id: string;
+	mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+	dataUrl: string;
+	nearbyContext: string;
+}
+
+export interface VisionGenerationRequest {
+	systemPrompt: string;
+	textPrompt: string;
+	images: VisionImageInput[];
+	maxTokens?: number;
+}
+
 export interface TextProvider {
 	readonly id: TextProviderId;
 	readonly displayName: string;
 	readonly capabilities: ProviderCapabilities;
 	validate(): string[];
-	generate(request: TextGenerationRequest): Promise<TextGenerationResult>;
+	generate(request: TextGenerationRequest, signal?: AbortSignal): Promise<TextGenerationResult>;
 	testConnection(): Promise<void>;
 }
 
 export interface VisionProvider {
-	readonly id: string;
+	readonly id: VisionProviderId;
+	readonly displayName: string;
 	readonly capabilities: ProviderCapabilities;
+	validateVision(request?: VisionGenerationRequest): string[];
+	generateVision(
+		request: VisionGenerationRequest,
+		signal?: AbortSignal,
+	): Promise<ProviderResponse>;
 }
 
 export interface SpeechProvider {
@@ -43,6 +66,7 @@ export interface HttpRequest {
 	headers: Record<string, string>;
 	body: string;
 	timeoutMs: number;
+	signal?: AbortSignal;
 }
 
 export interface HttpResponse {

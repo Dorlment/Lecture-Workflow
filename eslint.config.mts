@@ -39,7 +39,7 @@ export default defineConfig(
 			'obsidianmd/ui/sentence-case': [
 				'warn',
 				{
-					brands: ['Lecture Workflow', 'DeepSeek', 'Qwen', 'OpenAI', 'Workspace', 'Markdown'],
+					brands: ['Lecture Workflow', 'DeepSeek', 'Qwen', 'OpenAI', 'Workspace', 'Markdown', 'Provider', 'Token'],
 					acronyms: ['AI', 'API', 'URL', 'ID', 'OK', 'VPN'],
 					enforceCamelCaseLower: true,
 				},
