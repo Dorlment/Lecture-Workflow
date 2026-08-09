@@ -22,3 +22,19 @@ data.json
 
 # macOS Finder view state
 .DS_Store
+
+# .NET build and test output
+**/bin/
+**/obj/
+**/TestResults/
+**/artifacts/
+**/publish/
+
+# Temporary audio files
+*.wav
+*.mp3
+*.aac
+*.m4a
+*.flac
+*.ogg
+*.pcm
