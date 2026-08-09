@@ -5,6 +5,14 @@ import {
 } from 'obsidian';
 
 import type { AudioCaptureProbe } from './audio-capture-probe';
+import {
+	audioCompanionUiStatus,
+	type AudioCompanionClient,
+} from './audio-companion-client';
+import type {
+	AudioCompanionClientState,
+	AudioCompanionUiStatus,
+} from './audio-companion-types';
 import type {
 	AudioCaptureProbeState,
 	AudioInputDeviceOption,
@@ -61,12 +69,14 @@ interface ClassroomWorkbenchUi {
 	testSelectedInputButton: HTMLButtonElement;
 	systemAudioButton: HTMLButtonElement;
 	stopAudioButton: HTMLButtonElement;
+	audioCompanionStatusEl: HTMLElement;
 }
 
 export class ClassroomWorkbenchView extends ItemView {
 	private ui: ClassroomWorkbenchUi | null = null;
 	private unsubscribeClassroom: (() => void) | null = null;
 	private unsubscribeAudio: (() => void) | null = null;
+	private unsubscribeAudioCompanion: (() => void) | null = null;
 	private elapsedTimer: number | null = null;
 	private inputDeviceOptionsSignature = '';
 	private lastDeviceUnavailableNotice: string | null = null;
@@ -75,6 +85,7 @@ export class ClassroomWorkbenchView extends ItemView {
 		leaf: WorkspaceLeaf,
 		private readonly host: ClassroomWorkbenchHost,
 		private readonly audioProbe: AudioCaptureProbe,
+		private readonly audioCompanion: AudioCompanionClient,
 	) {
 		super(leaf);
 	}
@@ -99,8 +110,12 @@ export class ClassroomWorkbenchView extends ItemView {
 		this.unsubscribeAudio = this.audioProbe.subscribe(
 			(state) => this.applyAudioState(state),
 		);
+		this.unsubscribeAudioCompanion = this.audioCompanion.subscribe(
+			(state) => this.applyAudioCompanionState(state),
+		);
 		this.applyClassroomState(this.host.getClassroomState());
 		this.applyAudioState(this.audioProbe.state);
+		this.applyAudioCompanionState(this.audioCompanion.state);
 		this.startElapsedTimer();
 		await this.audioProbe.refreshAudioInputDevices();
 	}
@@ -110,6 +125,8 @@ export class ClassroomWorkbenchView extends ItemView {
 		this.unsubscribeClassroom = null;
 		this.unsubscribeAudio?.();
 		this.unsubscribeAudio = null;
+		this.unsubscribeAudioCompanion?.();
+		this.unsubscribeAudioCompanion = null;
 		this.stopElapsedTimer();
 		await this.audioProbe.stop();
 		this.inputDeviceOptionsSignature = '';
@@ -178,6 +195,13 @@ export class ClassroomWorkbenchView extends ItemView {
 		const savedCount = detailRow(classroomDetails, '已保存截图');
 		const insertedCount = detailRow(classroomDetails, '已插入事件');
 		const failedCount = detailRow(classroomDetails, '失败数量');
+
+		const companionCard = this.createCard('系统音频助手');
+		const audioCompanionStatus = summaryRow(companionCard, '当前状态');
+		companionCard.createEl('p', {
+			text: '系统音频助手尚未实现，本阶段仅建立通信基础。',
+			cls: 'lecture-workflow-workbench-help',
+		});
 
 		const audioCard = this.createCard('音频输入测试');
 		audioCard.createEl('p', {
@@ -307,6 +331,7 @@ export class ClassroomWorkbenchView extends ItemView {
 			testSelectedInputButton,
 			systemAudioButton,
 			stopAudioButton,
+			audioCompanionStatusEl: audioCompanionStatus,
 		};
 	}
 
@@ -421,6 +446,12 @@ export class ClassroomWorkbenchView extends ItemView {
 		} else if (state.errorCode !== 'device-unavailable') {
 			this.lastDeviceUnavailableNotice = null;
 		}
+	}
+
+	private applyAudioCompanionState(state: AudioCompanionClientState): void {
+		this.ui?.audioCompanionStatusEl.setText(
+			audioCompanionStatusLabel(audioCompanionUiStatus(state)),
+		);
 	}
 
 	private updateAudioInputOptions(
@@ -606,6 +637,18 @@ function audioStatusLabel(state: AudioCaptureProbeState): string {
 		error: '测试失败',
 	};
 	return labels[state.status];
+}
+
+function audioCompanionStatusLabel(status: AudioCompanionUiStatus): string {
+	const labels: Record<AudioCompanionUiStatus, string> = {
+		unconfigured: '尚未配置',
+		disconnected: '未连接',
+		connecting: '正在连接',
+		connected: '已连接',
+		incompatible: '协议不兼容',
+		failed: '连接失败',
+	};
+	return labels[status];
 }
 
 function safeErrorType(error: unknown): string {

@@ -11,6 +11,10 @@ import {
 	AudioCaptureProbe,
 	createBrowserAudioCaptureProbe,
 } from './audio-capture-probe';
+import {
+	AudioCompanionClient,
+	createBrowserAudioCompanionWebSocketFactory,
+} from './audio-companion-client';
 import { AiPreviewModal } from './ai-preview-modal';
 import { AiRetryModal } from './ai-retry-modal';
 import {
@@ -56,6 +60,10 @@ import type { TextProviderId, VisionProviderId } from './provider-types';
 import { ProviderError } from './provider-types';
 import { ObsidianHttpClient } from './providers/obsidian-http';
 import { ProviderRegistry } from './providers/registry';
+import {
+	ProgressNoticeManager,
+	type ProgressNoticeLease,
+} from './progress-notice';
 import { LectureNoteService } from './service';
 import {
 	DEFAULT_SETTINGS,
@@ -89,9 +97,17 @@ export default class LectureWorkflowPlugin extends Plugin {
 	settings: LectureWorkflowSettings = DEFAULT_SETTINGS;
 	private readonly openModals = new Set<{ close(): void }>();
 	private readonly aiWorkflowGate = new AiWorkflowGate();
+	private readonly progressNotices = new ProgressNoticeManager({
+		createNotice: (message, durationMs) => new Notice(message, durationMs),
+		scheduler: {
+			setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+			clearTimeout: (handle) => window.clearTimeout(handle),
+		},
+	});
 	private activeVisionAbortController: AbortController | null = null;
 	private classroomSessionController: ClassroomSessionController<TFile> | null = null;
 	private audioCaptureProbe: AudioCaptureProbe | null = null;
+	private audioCompanionClient: AudioCompanionClient | null = null;
 	private classroomWorkbenchOpener: ClassroomWorkbenchOpener<WorkspaceLeaf> | null = null;
 	private screenshotBackgroundService: ObsidianBackgroundScreenshotService | null = null;
 	private screenshotStatusBarEl: HTMLElement | null = null;
@@ -101,6 +117,20 @@ export default class LectureWorkflowPlugin extends Plugin {
 		await this.loadSettings();
 		this.initializeScreenshotBackgroundSession();
 		this.audioCaptureProbe = createBrowserAudioCaptureProbe(() => Platform.isDesktopApp);
+		this.audioCompanionClient = new AudioCompanionClient({
+			clientVersion: this.manifest.version,
+			getSessionContext: () => {
+				const state = this.classroomSessionController?.getState();
+				if (state?.status !== 'listening' || !state.sessionId || !state.startedAt) {
+					return null;
+				}
+				return {
+					sessionId: state.sessionId,
+					startedAtUnixMs: state.startedAt.getTime(),
+				};
+			},
+			webSocketFactory: createBrowserAudioCompanionWebSocketFactory(),
+		});
 		this.registerClassroomWorkbenchView();
 		this.classroomWorkbenchOpener = new ClassroomWorkbenchOpener(
 			this.app.workspace,
@@ -140,6 +170,9 @@ export default class LectureWorkflowPlugin extends Plugin {
 
 	onunload(): void {
 		this.classroomWorkbenchOpener = null;
+		this.progressNotices.dispose();
+		this.audioCompanionClient?.dispose();
+		this.audioCompanionClient = null;
 		this.audioCaptureProbe?.dispose();
 		this.audioCaptureProbe = null;
 		this.classroomSessionController?.dispose();
@@ -164,13 +197,20 @@ export default class LectureWorkflowPlugin extends Plugin {
 	}
 
 	async testTextProvider(id: TextProviderId): Promise<void> {
+		const registry = this.createProviderRegistry();
+		const provider = registry.getTextProvider(id);
+		const progress = this.progressNotices.start(
+			`provider-test:${id}`,
+			`正在测试 ${provider.displayName} 连接…`,
+		);
 		try {
-			const registry = this.createProviderRegistry();
-			await registry.getTextProvider(id).testConnection();
-			new Notice('连接测试成功。');
+			await provider.testConnection();
+			progress.success(`${provider.displayName} 连接测试成功。`);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			new Notice(`连接测试失败：${message}`);
+			const failure = describeProviderFailure(provider.displayName, error);
+			progress.failure(`连接测试失败：${failure.message}`);
+		} finally {
+			progress.finishIfPending();
 		}
 	}
 
@@ -493,8 +533,9 @@ export default class LectureWorkflowPlugin extends Plugin {
 	private registerClassroomWorkbenchView(): void {
 		this.registerView(CLASSROOM_WORKBENCH_VIEW_TYPE, (leaf) => {
 			const audioProbe = this.audioCaptureProbe;
-			if (!audioProbe) {
-				throw new Error('Audio capture probe is not initialized.');
+			const audioCompanion = this.audioCompanionClient;
+			if (!audioProbe || !audioCompanion) {
+				throw new Error('Audio runtime is not initialized.');
 			}
 			return new ClassroomWorkbenchView(leaf, {
 				getClassroomState: () => this.getBackgroundScreenshotState(),
@@ -509,7 +550,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 					this.app.workspace.rightSplit,
 					leaf,
 				),
-			}, audioProbe);
+			}, audioProbe, audioCompanion);
 		});
 	}
 
@@ -546,6 +587,10 @@ export default class LectureWorkflowPlugin extends Plugin {
 			new Notice('AI 整理正在进行，请勿重复提交。');
 			return;
 		}
+		const progress = this.progressNotices.start(
+			'ai-workflow',
+			'正在读取课堂笔记…',
+		);
 
 		const registry = this.createProviderRegistry();
 		const service = new AiWorkflowService(this.app, registry);
@@ -555,7 +600,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 		} catch (error) {
 			this.aiWorkflowGate.reset();
 			const message = error instanceof Error ? error.message : String(error);
-			new Notice(`AI 整理失败：${message}`);
+			progress.failure(`AI 整理失败：${message}`);
+			progress.finishIfPending();
 			return;
 		}
 		const route = decideVisionWorkflowRoute(
@@ -568,10 +614,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 				service,
 				registry,
 				registry.getActiveTextProviderId(),
+				progress,
 			);
 			return;
 		}
 		if (route === 'offer-text-only') {
+			progress.success('课堂笔记读取完成，等待选择整理方式。');
 			this.openVisionDisabledChoice(snapshot, service, registry);
 			return;
 		}
@@ -581,6 +629,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 			registry,
 			this.settings.visionProvider,
 			false,
+			progress,
 		);
 	}
 
@@ -618,8 +667,10 @@ export default class LectureWorkflowPlugin extends Plugin {
 		registry: ProviderRegistry,
 		providerId: VisionProviderId,
 		isRetry: boolean,
+		progress: ProgressNoticeLease,
 	): Promise<void> {
 		let prepared: VisionGenerationSnapshot | null = null;
+		progress.update('正在读取并检查课堂图片…');
 		try {
 			const provider = registry.getVisionProviderForConfirmedRetry(providerId);
 			const validation = provider.validateVision();
@@ -639,6 +690,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 				textProviderId: registry.getActiveTextProviderId(),
 				isRetry,
 			};
+			progress.success('课堂图片准备完成，等待确认。');
 			this.openVisionConfirmation(summary, prepared, snapshot, service, registry, providerId);
 		} catch (error) {
 			if (prepared) {
@@ -650,11 +702,13 @@ export default class LectureWorkflowPlugin extends Plugin {
 					providerId === 'qwen' ? 'Qwen-VL' : 'Custom Vision',
 					error,
 				);
-				new Notice(`图片整理准备失败：${failure.message}`);
+				progress.failure(`图片整理准备失败：${failure.message}`);
 				return;
 			}
 			const message = error instanceof Error ? error.message : '未知错误。';
-			new Notice(`图片整理准备失败：${message}`);
+			progress.failure(`图片整理准备失败：${message}`);
+		} finally {
+			progress.finishIfPending();
 		}
 	}
 
@@ -713,20 +767,35 @@ export default class LectureWorkflowPlugin extends Plugin {
 		service: AiWorkflowService,
 		registry: ProviderRegistry,
 		providerId: TextProviderId,
+		progress = this.progressNotices.start(
+			'ai-workflow',
+			'正在生成 AI 结构化笔记…',
+		),
 	): Promise<void> {
-		const provider = registry.getTextProvider(providerId);
-		new Notice(`正在使用 ${provider.displayName} 生成 AI 结构化笔记…`);
 		try {
+			const provider = registry.getTextProvider(providerId);
+			progress.update(`正在使用 ${provider.displayName} 生成 AI 结构化笔记…`);
 			const preview = await this.aiWorkflowGate.completeWithPreview(
 				() => service.generate(snapshot, providerId),
 			);
 			if (!preview.isComplete) {
-				new Notice('AI 结果不完整，已禁止写入；可在预览中复制或重新生成。');
+				progress.failure('AI 结果不完整，已禁止写入；可在预览中复制或重新生成。');
+			} else {
+				progress.success('AI 结构化笔记生成完成，请在预览中确认。');
 			}
 			this.openAiPreview(preview, snapshot, service, registry);
 		} catch (error) {
 			this.aiWorkflowGate.reset();
-			this.handleGenerationFailure(error, snapshot, service, registry, providerId);
+			this.handleGenerationFailure(
+				error,
+				snapshot,
+				service,
+				registry,
+				providerId,
+				progress,
+			);
+		} finally {
+			progress.finishIfPending();
 		}
 	}
 
@@ -739,18 +808,25 @@ export default class LectureWorkflowPlugin extends Plugin {
 	): Promise<void> {
 		const controller = new AbortController();
 		this.activeVisionAbortController = controller;
+		const progress = this.progressNotices.start(
+			'ai-workflow',
+			'正在准备视觉 AI 整理…',
+		);
 		try {
 			const provider = registry.getVisionProviderForConfirmedRetry(providerId);
-			new Notice(`正在使用 ${provider.displayName} 同时整理文字稿和课堂图片…`);
+			progress.update(`正在使用 ${provider.displayName} 同时整理文字稿和课堂图片…`);
 			const preview = await this.aiWorkflowGate.completeWithPreview(
 				() => service.generateVision(prepared, providerId, controller.signal),
 			);
 			if (!shouldAcceptVisionResult(controller.signal)) {
 				this.aiWorkflowGate.reset();
+				progress.cancel('视觉 AI 整理已取消。');
 				return;
 			}
 			if (!preview.isComplete) {
-				new Notice('视觉 AI 结果不完整，已禁止写入；可在预览中复制或重新生成。');
+				progress.failure('视觉 AI 结果不完整，已禁止写入；可在预览中复制或重新生成。');
+			} else {
+				progress.success('视觉 AI 整理完成，请在预览中确认。');
 			}
 			this.openAiPreview(preview, baseSnapshot, service, registry);
 		} catch (error) {
@@ -762,13 +838,17 @@ export default class LectureWorkflowPlugin extends Plugin {
 					service,
 					registry,
 					providerId,
+					progress,
 				);
+			} else {
+				progress.cancel('视觉 AI 整理已取消。');
 			}
 		} finally {
 			service.disposeVisionSnapshot(prepared);
 			if (this.activeVisionAbortController === controller) {
 				this.activeVisionAbortController = null;
 			}
+			progress.finishIfPending();
 		}
 	}
 
@@ -778,19 +858,19 @@ export default class LectureWorkflowPlugin extends Plugin {
 		service: AiWorkflowService,
 		registry: ProviderRegistry,
 		providerId: VisionProviderId,
+		progress: ProgressNoticeLease,
 	): void {
 		if (isVisionWorkflowConflictError(error)) {
-			new Notice(error.message);
+			progress.failure(error.message);
 			return;
 		}
 		if (!(error instanceof ProviderError)) {
-			const message = error instanceof Error ? error.message : '未知错误。';
-			new Notice(`视觉 AI 整理失败：${message}`);
+			progress.failure('视觉 AI 整理失败：发生未知错误，请稍后重试。');
 			return;
 		}
 		const providerName = providerId === 'qwen' ? 'Qwen-VL' : 'Custom Vision';
 		const failure = describeProviderFailure(providerName, error);
-		new Notice(`视觉 AI 整理失败：${failure.message}`);
+		progress.failure(`视觉 AI 整理失败：${failure.message}`);
 		if (!failure.isRetryableConnectionFailure) {
 			return;
 		}
@@ -849,12 +929,17 @@ export default class LectureWorkflowPlugin extends Plugin {
 			new Notice('AI 整理正在进行，请勿重复提交。');
 			return;
 		}
+		const progress = this.progressNotices.start(
+			'ai-workflow',
+			'正在准备课堂图片整理…',
+		);
 		await this.prepareVisionConfirmation(
 			snapshot,
 			service,
 			registry,
 			providerId,
 			true,
+			progress,
 		);
 	}
 
@@ -864,15 +949,15 @@ export default class LectureWorkflowPlugin extends Plugin {
 		service: AiWorkflowService,
 		registry: ProviderRegistry,
 		providerId: TextProviderId,
+		progress: ProgressNoticeLease,
 	): void {
 		if (!(error instanceof ProviderError)) {
-			const message = error instanceof Error ? error.message : '未知错误。';
-			new Notice(`AI 整理失败：${message}`);
+			progress.failure('AI 整理失败：发生未知错误，请稍后重试。');
 			return;
 		}
 		const providerName = registry.getTextProvider(providerId).displayName;
 		const failure = describeProviderFailure(providerName, error);
-		new Notice(`AI 整理失败：${failure.message}`);
+		progress.failure(`AI 整理失败：${failure.message}`);
 		if (providerId === 'deepseek' && failure.isRetryableConnectionFailure) {
 			const qwenConfigured = registry.getTextProvider('qwen').validate().length === 0;
 			this.openRetryModal(
@@ -917,30 +1002,35 @@ export default class LectureWorkflowPlugin extends Plugin {
 			this.app,
 			preview,
 			async (data) => {
+				const progress = this.progressNotices.start(
+					'ai-write',
+					'正在检查并写入 AI 结构化笔记…',
+				);
 				try {
 					await service.write(data);
-					new Notice('AI 结构化笔记已写入。');
+					progress.success('AI 结构化笔记已写入。');
 					return true;
 				} catch (error) {
 					if (isVisionWorkflowConflictError(error)) {
-						new Notice(VISION_WORKFLOW_CONFLICT_MESSAGE);
+						progress.failure(VISION_WORKFLOW_CONFLICT_MESSAGE);
 						return false;
 					}
 					if (isNoteConflictError(error)) {
-						new Notice(data.usesVision
+						progress.failure(data.usesVision
 							? VISION_WORKFLOW_CONFLICT_MESSAGE
 							: NOTE_CONFLICT_MESSAGE);
 						return false;
 					}
 					if (isNoteLatestReadError(error)) {
-						new Notice(data.usesVision
+						progress.failure(data.usesVision
 							? VISION_WORKFLOW_CONFLICT_MESSAGE
 							: NOTE_LATEST_READ_FAILED_MESSAGE);
 						return false;
 					}
-					const message = error instanceof Error ? error.message : String(error);
-					new Notice(`写入 AI 结果失败：${message}`);
+					progress.failure('写入 AI 结果失败，预览内容已保留。');
 					return false;
+				} finally {
+					progress.finishIfPending();
 				}
 			},
 			() => {
