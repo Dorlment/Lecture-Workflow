@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LectureWorkflow.AudioCompanion.Core", "src\LectureWorkflow.AudioCompanion.Core\LectureWorkflow.AudioCompanion.Core.csproj", "{688EA0FD-7D74-43C5-8BCF-A91061EE92CE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LectureWorkflow.AudioCompanion.Protocol", "src\LectureWorkflow.AudioCompanion.Protocol\LectureWorkflow.AudioCompanion.Protocol.csproj", "{510444ED-C3A9-4CA3-BA0E-48A97AFA2B2D}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LectureWorkflow.AudioCompanion.Windows", "src\LectureWorkflow.AudioCompanion.Windows\LectureWorkflow.AudioCompanion.Windows.csproj", "{CE885A96-043D-4E5C-BB7A-8BED301E6942}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LectureWorkflow.AudioCompanion.Tests", "tests\LectureWorkflow.AudioCompanion.Tests\LectureWorkflow.AudioCompanion.Tests.csproj", "{0A90B497-FABF-44A7-AF32-59929594851A}"
@@ -19,6 +21,10 @@ Global
 		{688EA0FD-7D74-43C5-8BCF-A91061EE92CE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{688EA0FD-7D74-43C5-8BCF-A91061EE92CE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{688EA0FD-7D74-43C5-8BCF-A91061EE92CE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{510444ED-C3A9-4CA3-BA0E-48A97AFA2B2D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{510444ED-C3A9-4CA3-BA0E-48A97AFA2B2D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{510444ED-C3A9-4CA3-BA0E-48A97AFA2B2D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{510444ED-C3A9-4CA3-BA0E-48A97AFA2B2D}.Release|Any CPU.Build.0 = Release|Any CPU
 		{CE885A96-043D-4E5C-BB7A-8BED301E6942}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{CE885A96-043D-4E5C-BB7A-8BED301E6942}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CE885A96-043D-4E5C-BB7A-8BED301E6942}.Release|Any CPU.ActiveCfg = Release|Any CPU

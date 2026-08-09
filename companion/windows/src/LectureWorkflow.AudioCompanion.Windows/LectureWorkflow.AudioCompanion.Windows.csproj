@@ -6,5 +6,10 @@
   <ItemGroup>
     <PackageReference Include="NAudio.Wasapi" />
     <ProjectReference Include="..\LectureWorkflow.AudioCompanion.Core\LectureWorkflow.AudioCompanion.Core.csproj" />
+    <ProjectReference Include="..\LectureWorkflow.AudioCompanion.Protocol\LectureWorkflow.AudioCompanion.Protocol.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="LectureWorkflow.AudioCompanion.Tests" />
   </ItemGroup>
 </Project>

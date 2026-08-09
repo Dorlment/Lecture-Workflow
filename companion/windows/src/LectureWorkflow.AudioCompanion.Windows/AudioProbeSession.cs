@@ -9,6 +9,7 @@ public sealed class AudioProbeSession : IAsyncDisposable
     private readonly IAudioBufferPool bufferPool;
     private readonly int queueChunkCapacity;
     private readonly long queueByteCapacity;
+    private readonly IAudioFrameSink? frameSink;
     private readonly object lifecycleLock = new();
     private CancellationTokenSource? sessionCancellation;
     private CancellationTokenRegistration externalCancellationRegistration;
@@ -25,13 +26,15 @@ public sealed class AudioProbeSession : IAsyncDisposable
         IProbeReporter reporter,
         IAudioBufferPool? bufferPool = null,
         int queueChunkCapacity = BoundedAudioChunkQueue.DefaultChunkCapacity,
-        long queueByteCapacity = BoundedAudioChunkQueue.DefaultByteCapacity)
+        long queueByteCapacity = BoundedAudioChunkQueue.DefaultByteCapacity,
+        IAudioFrameSink? frameSink = null)
     {
         this.backendFactory = backendFactory ?? throw new ArgumentNullException(nameof(backendFactory));
         this.reporter = reporter ?? throw new ArgumentNullException(nameof(reporter));
         this.bufferPool = bufferPool ?? SharedAudioBufferPool.Instance;
         this.queueChunkCapacity = queueChunkCapacity;
         this.queueByteCapacity = queueByteCapacity;
+        this.frameSink = frameSink;
     }
 
     public AudioProbeSessionState State { get; private set; } = AudioProbeSessionState.Idle;
@@ -190,10 +193,34 @@ public sealed class AudioProbeSession : IAsyncDisposable
 
                 using (chunk)
                 {
-                    foreach (AudioFrame frame in pipeline.Process(chunk.Memory.Span))
+                    IReadOnlyList<AudioFrame> frames = pipeline.Process(chunk.Memory.Span);
+                    double batchDurationMs = chunk.Length * 1000d
+                        / pipeline.InputBlockAlign
+                        / pipeline.InputSampleRate;
+                    long batchDurationTicks = checked((long)Math.Round(
+                        batchDurationMs * System.Diagnostics.Stopwatch.Frequency / 1000d));
+                    long estimatedBatchStart = Math.Max(0, chunk.CaptureTimestamp - batchDurationTicks);
+                    for (int index = 0; index < frames.Count; index++)
                     {
+                        AudioFrame frame = frames[index];
                         long count = Interlocked.Increment(ref frameCount);
                         reporter.ReportFrame(count, frame.Rms);
+                        long estimatedFrameTimestamp = checked(estimatedBatchStart
+                            + (long)Math.Round(index * 20d * System.Diagnostics.Stopwatch.Frequency / 1000d));
+                        bool transferred = false;
+                        try
+                        {
+                            transferred = frameSink?.TryAccept(
+                                frame,
+                                new AudioFrameCaptureMetadata(estimatedFrameTimestamp, batchDurationMs)) ?? false;
+                        }
+                        finally
+                        {
+                            if (!transferred)
+                            {
+                                System.Security.Cryptography.CryptographicOperations.ZeroMemory(frame.Pcm);
+                            }
+                        }
                     }
                 }
             }
@@ -226,7 +253,7 @@ public sealed class AudioProbeSession : IAsyncDisposable
         try
         {
             Buffer.BlockCopy(eventArgs.Buffer, 0, rented, 0, eventArgs.Count);
-            chunk = new PooledAudioChunk(bufferPool, rented, eventArgs.Count);
+            chunk = new PooledAudioChunk(bufferPool, rented, eventArgs.Count, eventArgs.CaptureTimestamp);
             if (activeQueue.TryEnqueue(chunk))
             {
                 ownershipTransferred = true;

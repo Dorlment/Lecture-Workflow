@@ -7,7 +7,11 @@
   <ItemGroup>
     <PackageReference Include="MSTest" />
     <ProjectReference Include="..\..\src\LectureWorkflow.AudioCompanion.Core\LectureWorkflow.AudioCompanion.Core.csproj" />
+    <ProjectReference Include="..\..\src\LectureWorkflow.AudioCompanion.Protocol\LectureWorkflow.AudioCompanion.Protocol.csproj" />
     <ProjectReference Include="..\..\src\LectureWorkflow.AudioCompanion.Windows\LectureWorkflow.AudioCompanion.Windows.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\..\tests\fixtures\audio-companion-frame-v1.json" Link="fixtures\audio-companion-frame-v1.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />

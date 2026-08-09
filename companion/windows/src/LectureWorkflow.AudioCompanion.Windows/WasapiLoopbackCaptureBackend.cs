@@ -181,7 +181,8 @@ public sealed class WasapiLoopbackCaptureBackend : IAudioCaptureBackend, IMMNoti
 
     private void OnDataAvailable(object? sender, WaveInEventArgs eventArgs)
     {
-        DataAvailable?.Invoke(this, new AudioDataAvailableEventArgs(eventArgs.Buffer, eventArgs.BytesRecorded));
+        long captureTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        DataAvailable?.Invoke(this, new AudioDataAvailableEventArgs(eventArgs.Buffer, eventArgs.BytesRecorded, captureTimestamp));
     }
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs eventArgs)

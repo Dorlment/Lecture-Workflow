@@ -25,6 +25,10 @@ public sealed class AudioConversionPipeline
 
     public int PendingOutputSampleCount => frameAssembler.PendingSampleCount;
 
+    public int InputBlockAlign => inputFormat.BlockAlign;
+
+    public int InputSampleRate => inputFormat.SampleRate;
+
     public IReadOnlyList<AudioFrame> Process(ReadOnlySpan<byte> input)
     {
         float[] interleaved = decoder.Decode(input);
