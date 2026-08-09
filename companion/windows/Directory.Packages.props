@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="MSTest" Version="4.0.2" />
+    <PackageVersion Include="NAudio.Core" Version="2.3.0" />
+    <PackageVersion Include="NAudio.Wasapi" Version="2.3.0" />
+  </ItemGroup>
+</Project>
