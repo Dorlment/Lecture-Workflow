@@ -204,6 +204,46 @@ public sealed class AudioProbeSessionTests
         Assert.DoesNotContain("base64", reporter.Messages);
     }
 
+    [TestMethod]
+    public async Task FrameSinkReceivesCallbackCaptureTimestampWithoutBlockingTheCaptureCallback()
+    {
+        FakeCaptureBackend backend = new();
+        CapturingFrameSink sink = new();
+        await using AudioProbeSession session = new(
+            new FakeFactory(backend),
+            new FakeReporter(),
+            frameSink: sink);
+        await session.StartAsync();
+
+        backend.Emit(EncodeFloats(Enumerable.Repeat(0.25f, 320).ToArray()), 100_000);
+        await WaitUntilAsync(() => sink.Metadata is not null);
+        await session.StopAsync();
+
+        Assert.AreEqual(20d, sink.Metadata!.BatchDurationMs, 0.001d);
+        Assert.IsLessThan(100_000L, sink.Metadata.EstimatedCaptureTimestamp);
+        Assert.IsTrue(sink.Frame!.Pcm.Any(value => value != 0));
+        Array.Clear(sink.Frame.Pcm);
+    }
+
+    [TestMethod]
+    public async Task ThrowingFrameSinkStillClearsFrameAndStopsSafely()
+    {
+        FakeCaptureBackend backend = new();
+        ThrowingFrameSink sink = new();
+        await using AudioProbeSession session = new(
+            new FakeFactory(backend),
+            new FakeReporter(),
+            frameSink: sink);
+        await session.StartAsync();
+
+        backend.Emit(EncodeFloats(Enumerable.Repeat(0.5f, 320).ToArray()));
+        await session.Completion;
+
+        Assert.IsNotNull(sink.Frame);
+        Assert.IsTrue(sink.Frame.Pcm.All(value => value == 0));
+        Assert.AreEqual(AudioProbeSessionState.Faulted, session.State);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(2));
@@ -269,7 +309,8 @@ public sealed class AudioProbeSessionTests
 
         public void Dispose() => DisposeCount++;
 
-        public void Emit(byte[] bytes) => DataAvailable?.Invoke(this, new AudioDataAvailableEventArgs(bytes, bytes.Length));
+        public void Emit(byte[] bytes, long? captureTimestamp = null) =>
+            DataAvailable?.Invoke(this, new AudioDataAvailableEventArgs(bytes, bytes.Length, captureTimestamp));
 
         public void Fail(Exception exception) => CaptureStopped?.Invoke(this, new AudioCaptureStoppedEventArgs(exception));
 
@@ -316,5 +357,30 @@ public sealed class AudioProbeSessionTests
         }
 
         public void Return(byte[] buffer) => ReturnCount++;
+    }
+
+    private sealed class CapturingFrameSink : IAudioFrameSink
+    {
+        public AudioFrame? Frame { get; private set; }
+
+        public AudioFrameCaptureMetadata? Metadata { get; private set; }
+
+        public bool TryAccept(AudioFrame frame, AudioFrameCaptureMetadata metadata)
+        {
+            Frame = frame;
+            Metadata = metadata;
+            return true;
+        }
+    }
+
+    private sealed class ThrowingFrameSink : IAudioFrameSink
+    {
+        public AudioFrame? Frame { get; private set; }
+
+        public bool TryAccept(AudioFrame frame, AudioFrameCaptureMetadata metadata)
+        {
+            Frame = frame;
+            throw new InvalidOperationException("synthetic sink failure");
+        }
     }
 }

@@ -28,7 +28,7 @@ public sealed class PooledAudioChunk : IDisposable
     private readonly IAudioBufferPool pool;
     private byte[]? buffer;
 
-    public PooledAudioChunk(IAudioBufferPool pool, byte[] buffer, int length)
+    public PooledAudioChunk(IAudioBufferPool pool, byte[] buffer, int length, long captureTimestamp = 0)
     {
         ArgumentNullException.ThrowIfNull(pool);
         ArgumentNullException.ThrowIfNull(buffer);
@@ -42,9 +42,12 @@ public sealed class PooledAudioChunk : IDisposable
         this.pool = pool;
         this.buffer = buffer;
         Length = length;
+        CaptureTimestamp = captureTimestamp;
     }
 
     public int Length { get; }
+
+    public long CaptureTimestamp { get; }
 
     public ReadOnlyMemory<byte> Memory
     {

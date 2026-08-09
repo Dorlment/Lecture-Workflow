@@ -48,6 +48,11 @@ const READY = {
 	capabilities: ['audio-frame-v1', 'heartbeat-v1', 'source-selection-v1'],
 };
 
+const sharedFrameFixture = JSON.parse(await readFile(
+	new URL('./fixtures/audio-companion-frame-v1.json', import.meta.url),
+	'utf8',
+));
+
 function pairingToken() {
 	return 'A'.repeat(43);
 }
@@ -534,4 +539,48 @@ test('workbench status mapping covers all six companion display states', () => {
 		status: 'error',
 		errorCode: 'connect-failed',
 	}), 'failed');
+});
+
+test('TypeScript frame parser reads the shared C# golden fixture', () => {
+	const packet = Uint8Array.from(Buffer.from(sharedFrameFixture.packetHex, 'hex'));
+	const frame = parseAudioCompanionFrame(packet);
+
+	assert.equal(frame.sequence, sharedFrameFixture.sequence);
+	assert.equal(frame.offsetMs, sharedFrameFixture.offsetMs);
+	assert.equal(frame.sampleRate, sharedFrameFixture.sampleRate);
+	assert.equal(frame.channels, sharedFrameFixture.channels);
+	assert.equal(frame.sampleFormat, sharedFrameFixture.sampleFormat);
+	assert.equal(frame.sampleCount, sharedFrameFixture.sampleCount);
+	assert.equal(Buffer.from(frame.pcm).toString('hex'), sharedFrameFixture.pcmHex);
+});
+
+test('one-paste Windows acceptance script keeps its pairing token in process memory', async () => {
+	const readme = await readFile('companion/windows/README.md', 'utf8');
+	const match = readme.match(/## One-paste default-device-change acceptance test[\s\S]*?```powershell\r?\n([\s\S]*?)\r?\n```/);
+	assert.ok(match, 'Expected the development-only PowerShell acceptance script.');
+	const script = match[1];
+
+	assert.match(script, /New-Object byte\[\] 32/);
+	assert.match(script, /RandomNumberGenerator\]::Create\(\)/);
+	assert.match(script, /\$rng\.GetBytes\(\$tokenBytes\)/);
+	assert.match(script, /\$rng\.Dispose\(\)/);
+	assert.match(script, /RedirectStandardInput = \$true/);
+	assert.match(script, /StandardInput\.WriteLine\(\$PairingToken\)/);
+	assert.match(script, /--stop-on-stdin-eof/);
+	assert.match(script, /--duration-seconds', '10'/);
+	assert.equal((script.match(/'server-test-client'/g) ?? []).length, 2);
+	assert.match(script, /BeginConnect\('127\.0\.0\.1', 43127/);
+	assert.match(script, /\.WaitOne\(500\)/);
+	assert.match(script, /EndConnect\(\$asyncResult\)/);
+	assert.match(script, /EndConnect\(\$asyncResult\)\r?\n\s*return \$true/);
+	assert.doesNotMatch(script, /return \$client\.Connected/);
+	assert.match(script, /\$waitHandle\.Close\(\)/);
+	assert.match(script, /\$client\.Dispose\(\)/);
+	assert.match(script, /AddSeconds\(60\)/);
+	assert.match(script, /server-exited-before-ready/);
+	assert.match(script, /acceptance-port-still-in-use/);
+	assert.match(script, /\[Array\]::Clear\(\$tokenBytes, 0, \$tokenBytes\.Length\)/);
+	assert.match(script, /\$pairingToken = \$null/);
+	assert.doesNotMatch(script, /Clipboard|SetEnvironmentVariable|\$env:|Set-Content|Add-Content|Out-File|WriteAllText|WriteAllBytes/i);
+	assert.doesNotMatch(script, /ConnectAsync|RandomNumberGenerator\]::GetBytes\(|ArgumentList|\.Kill\(\$true\)|ArgumentList\.Add\(\$PairingToken\)|Write-(?:Host|Output).*PairingToken/i);
 });

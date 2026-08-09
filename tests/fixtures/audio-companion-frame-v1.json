@@ -1,0 +1,10 @@
+{
+  "sequence": 7,
+  "offsetMs": 12540,
+  "sampleRate": 16000,
+  "channels": 1,
+  "sampleFormat": "s16le",
+  "sampleCount": 4,
+  "pcmHex": "0080ffff0000ff7f",
+  "packetHex": "4c5741460101010007000000803e00000400000008000000fc300000000000000080ffff0000ff7f"
+}
