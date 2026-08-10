@@ -13,6 +13,7 @@ import {
 	type AudioCompanionClientOptions,
 	type AudioCompanionClientState,
 	type AudioCompanionClientStatus,
+	type AudioCompanionFrame,
 	type AudioCompanionConfiguration,
 	type AudioCompanionConfigureResult,
 	type AudioCompanionErrorCode,
@@ -45,7 +46,10 @@ interface PendingOperation {
 }
 
 export class AudioCompanionClientError extends Error {
-	constructor(readonly code: AudioCompanionErrorCode) {
+	constructor(
+		readonly code: AudioCompanionErrorCode,
+		readonly remoteErrorCode: AudioCompanionRemoteErrorCode | null = null,
+	) {
 		super(audioCompanionErrorMessage(code));
 		this.name = 'AudioCompanionClientError';
 	}
@@ -54,6 +58,7 @@ export class AudioCompanionClientError extends Error {
 export class AudioCompanionClient {
 	private currentState: AudioCompanionClientState = createInitialState(false);
 	private readonly listeners = new Set<(state: AudioCompanionClientState) => void>();
+	private readonly frameListeners = new Set<(frame: AudioCompanionFrame) => void>();
 	private readonly scheduler: AudioCompanionScheduler;
 	private configuration: RuntimeConfiguration | null = null;
 	private socket: AudioCompanionSocket | null = null;
@@ -252,6 +257,14 @@ export class AudioCompanionClient {
 		return () => this.listeners.delete(listener);
 	}
 
+	subscribeAudioFrames(listener: (frame: AudioCompanionFrame) => void): () => void {
+		if (this.disposed) {
+			return () => undefined;
+		}
+		this.frameListeners.add(listener);
+		return () => this.frameListeners.delete(listener);
+	}
+
 	dispose(): void {
 		if (this.disposed) {
 			return;
@@ -263,6 +276,7 @@ export class AudioCompanionClient {
 		this.configuration = null;
 		this.session = null;
 		this.listeners.clear();
+		this.frameListeners.clear();
 		this.startPending = false;
 		this.resetFrameSequence();
 	}
@@ -336,7 +350,9 @@ export class AudioCompanionClient {
 				}
 				this.lastSequence = frame.sequence;
 				this.lastOffsetMs = frame.offsetMs;
-				this.options.onAudioFrame?.(frame);
+				for (const listener of this.frameListeners) {
+					listener(frame);
+				}
 				return;
 			}
 			throw new AudioCompanionProtocolError('unsupported-message-data');
@@ -344,7 +360,9 @@ export class AudioCompanionClient {
 			this.fail(
 				error instanceof AudioCompanionProtocolError && error.reason === 'protocol-version'
 					? 'protocol-incompatible'
-					: 'protocol-error',
+					: error instanceof AudioCompanionProtocolError && error.reason === 'invalid-error'
+						? 'remote-error'
+						: 'protocol-error',
 				this.currentState.status,
 				safeErrorName(error),
 			);
@@ -391,6 +409,7 @@ export class AudioCompanionClient {
 			status: 'ready',
 			configured: true,
 			errorCode: null,
+			remoteErrorCode: null,
 			helperVersion: message.helperVersion,
 			platform: message.platform,
 			supportedSources: [...message.supportedSources],
@@ -441,7 +460,7 @@ export class AudioCompanionClient {
 			: code === 'PROTOCOL_MISMATCH'
 				? 'protocol-incompatible'
 				: 'remote-error';
-		this.fail(localCode, this.currentState.status, 'RemoteError');
+		this.fail(localCode, this.currentState.status, 'RemoteError', code);
 	}
 
 	private startHeartbeat(): void {
@@ -486,12 +505,18 @@ export class AudioCompanionClient {
 		code: AudioCompanionErrorCode,
 		stage: AudioCompanionClientStatus,
 		type: string,
+		remoteErrorCode: AudioCompanionRemoteErrorCode | null = null,
 	): void {
 		if (this.disposed) {
 			return;
 		}
-		this.options.onDiagnostic?.({ code, stage, type: sanitizeDiagnosticType(type) });
-		this.rejectPendingOperations(code);
+		this.options.onDiagnostic?.({
+			code,
+			remoteErrorCode,
+			stage,
+			type: sanitizeDiagnosticType(type),
+		});
+		this.rejectPendingOperations(code, remoteErrorCode);
 		this.clearAllTimers();
 		this.closeSocket();
 		this.session = null;
@@ -501,11 +526,15 @@ export class AudioCompanionClient {
 			...this.currentState,
 			status: 'error',
 			errorCode: code,
+			remoteErrorCode,
 		});
 	}
 
-	private rejectPendingOperations(code: AudioCompanionErrorCode): void {
-		const error = new AudioCompanionClientError(code);
+	private rejectPendingOperations(
+		code: AudioCompanionErrorCode,
+		remoteErrorCode: AudioCompanionRemoteErrorCode | null = null,
+	): void {
+		const error = new AudioCompanionClientError(code, remoteErrorCode);
 		const connect = this.connectOperation;
 		const stop = this.stopOperation;
 		this.connectOperation = null;
@@ -515,7 +544,12 @@ export class AudioCompanionClient {
 	}
 
 	private setStatus(status: AudioCompanionClientStatus): void {
-		this.setState({ ...this.currentState, status, errorCode: null });
+		this.setState({
+			...this.currentState,
+			status,
+			errorCode: null,
+			remoteErrorCode: null,
+		});
 	}
 
 	private setState(state: AudioCompanionClientState): void {
@@ -645,6 +679,7 @@ function createInitialState(configured: boolean): AudioCompanionClientState {
 		status: 'idle',
 		configured,
 		errorCode: null,
+		remoteErrorCode: null,
 		helperVersion: null,
 		platform: null,
 		supportedSources: [],

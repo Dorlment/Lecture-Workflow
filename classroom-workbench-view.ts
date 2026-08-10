@@ -5,14 +5,12 @@ import {
 } from 'obsidian';
 
 import type { AudioCaptureProbe } from './audio-capture-probe';
-import {
-	audioCompanionUiStatus,
-	type AudioCompanionClient,
-} from './audio-companion-client';
 import type {
-	AudioCompanionClientState,
-	AudioCompanionUiStatus,
-} from './audio-companion-types';
+	AudioCompanionRuntimeControl,
+	AudioCompanionRuntimeState,
+} from './audio-companion-runtime-types';
+import { audioCompanionRuntimeUiState } from './audio-companion-runtime-ui';
+import { AudioCompanionWorkbenchBinding } from './audio-companion-workbench-binding';
 import type {
 	AudioCaptureProbeState,
 	AudioInputDeviceOption,
@@ -28,8 +26,10 @@ export interface ClassroomWorkbenchHost {
 	subscribeClassroom(
 		listener: (state: ScreenshotBackgroundState) => void,
 	): () => void;
-	startClassroom(): void;
-	stopClassroom(): void;
+	startClassroom(): void | Promise<void>;
+	stopClassroom(): void | Promise<void>;
+	startSystemAudio(): Promise<void>;
+	stopSystemAudio(): Promise<void>;
 	getDismissMode(): ClassroomWorkbenchDismissMode;
 	dismissWorkbench(): ClassroomWorkbenchDismissMode;
 }
@@ -70,22 +70,30 @@ interface ClassroomWorkbenchUi {
 	systemAudioButton: HTMLButtonElement;
 	stopAudioButton: HTMLButtonElement;
 	audioCompanionStatusEl: HTMLElement;
+	audioCompanionFrameCountEl: HTMLElement;
+	audioCompanionRmsEl: HTMLProgressElement;
+	audioCompanionRmsTextEl: HTMLElement;
+	audioCompanionErrorEl: HTMLElement;
+	startAudioCompanionButton: HTMLButtonElement;
+	stopAudioCompanionButton: HTMLButtonElement;
 }
 
 export class ClassroomWorkbenchView extends ItemView {
 	private ui: ClassroomWorkbenchUi | null = null;
 	private unsubscribeClassroom: (() => void) | null = null;
 	private unsubscribeAudio: (() => void) | null = null;
-	private unsubscribeAudioCompanion: (() => void) | null = null;
+	private audioCompanionBinding: AudioCompanionWorkbenchBinding | null = null;
 	private elapsedTimer: number | null = null;
 	private inputDeviceOptionsSignature = '';
 	private lastDeviceUnavailableNotice: string | null = null;
+	private lastClassroomState: ScreenshotBackgroundState | null = null;
+	private lastAudioCompanionState: AudioCompanionRuntimeState | null = null;
 
 	constructor(
 		leaf: WorkspaceLeaf,
 		private readonly host: ClassroomWorkbenchHost,
 		private readonly audioProbe: AudioCaptureProbe,
-		private readonly audioCompanion: AudioCompanionClient,
+		private readonly audioCompanion: AudioCompanionRuntimeControl,
 	) {
 		super(leaf);
 	}
@@ -110,12 +118,16 @@ export class ClassroomWorkbenchView extends ItemView {
 		this.unsubscribeAudio = this.audioProbe.subscribe(
 			(state) => this.applyAudioState(state),
 		);
-		this.unsubscribeAudioCompanion = this.audioCompanion.subscribe(
-			(state) => this.applyAudioCompanionState(state),
-		);
+		this.audioCompanionBinding = new AudioCompanionWorkbenchBinding({
+			readState: () => this.audioCompanion.state,
+			subscribe: (listener) => this.audioCompanion.subscribe(listener),
+			apply: (state) => this.applyAudioCompanionState(state),
+			schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+			cancel: (timerId) => window.clearTimeout(timerId),
+		});
+		this.audioCompanionBinding.open();
 		this.applyClassroomState(this.host.getClassroomState());
 		this.applyAudioState(this.audioProbe.state);
-		this.applyAudioCompanionState(this.audioCompanion.state);
 		this.startElapsedTimer();
 		await this.audioProbe.refreshAudioInputDevices();
 	}
@@ -125,12 +137,14 @@ export class ClassroomWorkbenchView extends ItemView {
 		this.unsubscribeClassroom = null;
 		this.unsubscribeAudio?.();
 		this.unsubscribeAudio = null;
-		this.unsubscribeAudioCompanion?.();
-		this.unsubscribeAudioCompanion = null;
+		this.audioCompanionBinding?.close();
+		this.audioCompanionBinding = null;
 		this.stopElapsedTimer();
 		await this.audioProbe.stop();
 		this.inputDeviceOptionsSignature = '';
 		this.lastDeviceUnavailableNotice = null;
+		this.lastClassroomState = null;
+		this.lastAudioCompanionState = null;
 		this.ui = null;
 		this.contentEl.empty();
 	}
@@ -198,8 +212,38 @@ export class ClassroomWorkbenchView extends ItemView {
 
 		const companionCard = this.createCard('系统音频助手');
 		const audioCompanionStatus = summaryRow(companionCard, '当前状态');
+		const audioCompanionFrameCount = summaryRow(companionCard, '已处理帧数');
+		const companionVolume = companionCard.createDiv({
+			cls: 'lecture-workflow-audio-volume',
+		});
+		const companionVolumeHeader = companionVolume.createDiv({
+			cls: 'lecture-workflow-audio-volume-header',
+		});
+		companionVolumeHeader.createSpan({ text: '实时 RMS' });
+		const audioCompanionRmsText = companionVolumeHeader.createSpan({ text: '0%' });
+		const audioCompanionRms = companionVolume.createEl('progress');
+		audioCompanionRms.max = 1;
+		audioCompanionRms.value = 0;
+		audioCompanionRms.setAttr('aria-label', '系统音频实时 RMS：0%');
+		const audioCompanionError = companionCard.createEl('p', {
+			text: '',
+			cls: 'lecture-workflow-workbench-help lecture-workflow-workbench-error',
+		});
+		const companionActions = companionCard.createDiv({
+			cls: 'lecture-workflow-workbench-actions lecture-workflow-workbench-actions-two',
+		});
+		const startAudioCompanionButton = this.createButton(
+			companionActions,
+			'启动系统音频',
+			() => this.host.startSystemAudio(),
+		);
+		const stopAudioCompanionButton = this.createButton(
+			companionActions,
+			'停止系统音频',
+			() => this.host.stopSystemAudio(),
+		);
 		companionCard.createEl('p', {
-			text: '系统音频助手尚未实现，本阶段仅建立通信基础。',
+			text: '系统音频仅在本机实时处理，不保存、不上传、不转写。',
 			cls: 'lecture-workflow-workbench-help',
 		});
 
@@ -332,6 +376,12 @@ export class ClassroomWorkbenchView extends ItemView {
 			systemAudioButton,
 			stopAudioButton,
 			audioCompanionStatusEl: audioCompanionStatus,
+			audioCompanionFrameCountEl: audioCompanionFrameCount,
+			audioCompanionRmsEl: audioCompanionRms,
+			audioCompanionRmsTextEl: audioCompanionRmsText,
+			audioCompanionErrorEl: audioCompanionError,
+			startAudioCompanionButton,
+			stopAudioCompanionButton,
 		};
 	}
 
@@ -368,6 +418,7 @@ export class ClassroomWorkbenchView extends ItemView {
 	}
 
 	private applyClassroomState(state: ScreenshotBackgroundState): void {
+		this.lastClassroomState = state;
 		const ui = this.ui;
 		if (!ui) {
 			return;
@@ -395,6 +446,9 @@ export class ClassroomWorkbenchView extends ItemView {
 		this.updateSessionSummarySecondary(state);
 		ui.startButton.disabled = state.status === 'listening';
 		ui.stopButton.disabled = state.status !== 'listening';
+		if (this.lastAudioCompanionState) {
+			this.applyAudioCompanionState(this.lastAudioCompanionState);
+		}
 	}
 
 	private applyAudioState(state: AudioCaptureProbeState): void {
@@ -448,10 +502,27 @@ export class ClassroomWorkbenchView extends ItemView {
 		}
 	}
 
-	private applyAudioCompanionState(state: AudioCompanionClientState): void {
-		this.ui?.audioCompanionStatusEl.setText(
-			audioCompanionStatusLabel(audioCompanionUiStatus(state)),
+	private applyAudioCompanionState(state: AudioCompanionRuntimeState): void {
+		this.lastAudioCompanionState = state;
+		const ui = this.ui;
+		if (!ui) {
+			return;
+		}
+		const presentation = audioCompanionRuntimeUiState(
+			state,
+			this.lastClassroomState?.status === 'listening',
 		);
+		ui.audioCompanionStatusEl.setText(presentation.statusLabel);
+		ui.audioCompanionFrameCountEl.setText(String(state.frameCount));
+		ui.audioCompanionRmsEl.value = state.rms;
+		const rmsPercentage = Math.round(state.rms * 100);
+		ui.audioCompanionRmsTextEl.setText(`${rmsPercentage}%`);
+		ui.audioCompanionRmsEl.setAttr('aria-label', `系统音频实时 RMS：${rmsPercentage}%`);
+		ui.audioCompanionErrorEl.setText(presentation.errorMessage);
+		ui.audioCompanionErrorEl.toggleClass('is-hidden', !presentation.errorMessage);
+		ui.startAudioCompanionButton.setText(presentation.startLabel);
+		ui.startAudioCompanionButton.disabled = !presentation.canStart;
+		ui.stopAudioCompanionButton.disabled = !presentation.canStop;
 	}
 
 	private updateAudioInputOptions(
@@ -637,18 +708,6 @@ function audioStatusLabel(state: AudioCaptureProbeState): string {
 		error: '测试失败',
 	};
 	return labels[state.status];
-}
-
-function audioCompanionStatusLabel(status: AudioCompanionUiStatus): string {
-	const labels: Record<AudioCompanionUiStatus, string> = {
-		unconfigured: '尚未配置',
-		disconnected: '未连接',
-		connecting: '正在连接',
-		connected: '已连接',
-		incompatible: '协议不兼容',
-		failed: '连接失败',
-	};
-	return labels[status];
 }
 
 function safeErrorType(error: unknown): string {

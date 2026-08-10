@@ -5,8 +5,29 @@ It captures the current default `Render` / `Multimedia` endpoint through WASAPI
 loopback, converts the stream to 16 kHz mono PCM signed 16-bit little-endian, and
 reports aggregate frame and RMS statistics only.
 
-Neither mode saves, uploads, transcribes, or logs audio content. The server does not start
-automatically and is not yet exposed by the Obsidian UI.
+Neither mode saves, uploads, transcribes, or logs audio content. A staged development helper can
+be launched from the Obsidian classroom workflow after an explicit classroom-session action; it
+is never configured as an operating-system startup item or background service.
+
+## Stage the development helper for Obsidian
+
+From the repository root, publish and stage the framework-dependent helper into an existing
+Lecture Workflow development plugin directory:
+
+```powershell
+npm run stage:audio-companion -- --plugin-dir "D:\path\to\vault\.obsidian\plugins\lecture-workflow"
+```
+
+The target must already contain `manifest.json` with plugin ID `lecture-workflow` and `main.js`.
+The staging command publishes the Windows executable in Release mode, copies the complete runtime
+dependency set produced by `dotnet publish`, filters development-only files such as PDB and logs,
+then atomically replaces only `companion/windows`. It does not inspect or modify `data.json`.
+
+The staged layout contains `companion/windows/LectureWorkflow.AudioCompanion.Windows.exe`, the
+Core, Protocol and Windows assemblies, `.deps.json`, `.runtimeconfig.json`, and NAudio runtime
+dependencies. This is a framework-dependent development build and requires the .NET 10 Desktop
+Runtime on the Windows machine. It is not an installer, auto-updater, background service, or
+production packaging flow.
 
 ## Run the probe
 

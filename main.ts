@@ -15,6 +15,8 @@ import {
 	AudioCompanionClient,
 	createBrowserAudioCompanionWebSocketFactory,
 } from './audio-companion-client';
+import { AudioCompanionSessionController } from './audio-companion-session-controller';
+import { AudioFrameConsumer } from './audio-frame-consumer';
 import { AiPreviewModal } from './ai-preview-modal';
 import { AiRetryModal } from './ai-retry-modal';
 import {
@@ -38,6 +40,15 @@ import {
 	ClassroomSessionController,
 	classroomSessionMenuTitle,
 } from './classroom-session-controller';
+import { createWindowsPluginRelativeLaunchResolver } from './companion-launch-resolver';
+import {
+	CompanionProcessManager,
+	createNodeCompanionSpawnFactory,
+} from './companion-process-manager';
+import {
+	CompanionReadinessProbe,
+	createNodeTcpConnector,
+} from './companion-readiness-probe';
 import {
 	CLASSROOM_WORKBENCH_VIEW_TYPE,
 	ClassroomWorkbenchView,
@@ -70,6 +81,9 @@ import {
 	LectureWorkflowSettingTab,
 } from './settings';
 import { normalizeSettings } from './settings-data';
+import { createRuntimeNodeModuleLoader } from './runtime-node-loader';
+import { createObsidianCompanionPluginDirectoryProvider } from './obsidian-companion-plugin-directory';
+import { runtimeErrorMessage } from './audio-companion-runtime-ui';
 import { ObsidianBackgroundScreenshotService } from './screenshot-background-service';
 import {
 	buildClassroomSessionId,
@@ -108,6 +122,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 	private classroomSessionController: ClassroomSessionController<TFile> | null = null;
 	private audioCaptureProbe: AudioCaptureProbe | null = null;
 	private audioCompanionClient: AudioCompanionClient | null = null;
+	private audioCompanionSessionController: AudioCompanionSessionController | null = null;
+	private audioFrameConsumer: AudioFrameConsumer | null = null;
 	private classroomWorkbenchOpener: ClassroomWorkbenchOpener<WorkspaceLeaf> | null = null;
 	private screenshotBackgroundService: ObsidianBackgroundScreenshotService | null = null;
 	private screenshotStatusBarEl: HTMLElement | null = null;
@@ -119,17 +135,32 @@ export default class LectureWorkflowPlugin extends Plugin {
 		this.audioCaptureProbe = createBrowserAudioCaptureProbe(() => Platform.isDesktopApp);
 		this.audioCompanionClient = new AudioCompanionClient({
 			clientVersion: this.manifest.version,
-			getSessionContext: () => {
-				const state = this.classroomSessionController?.getState();
-				if (state?.status !== 'listening' || !state.sessionId || !state.startedAt) {
-					return null;
-				}
-				return {
-					sessionId: state.sessionId,
-					startedAtUnixMs: state.startedAt.getTime(),
-				};
-			},
+			getSessionContext: () => this.getAudioCompanionClassroomContext(),
 			webSocketFactory: createBrowserAudioCompanionWebSocketFactory(),
+		});
+		const nodeLoader = createRuntimeNodeModuleLoader();
+		const processManager = new CompanionProcessManager({
+			spawn: createNodeCompanionSpawnFactory(nodeLoader),
+		});
+		const readinessProbe = new CompanionReadinessProbe({
+			connector: createNodeTcpConnector(nodeLoader),
+		});
+		this.audioFrameConsumer = new AudioFrameConsumer();
+		this.audioCompanionSessionController = new AudioCompanionSessionController({
+			isWindowsDesktop: () => Platform.isDesktopApp && Platform.isWin,
+			classroom: {
+				getSessionContext: () => this.getAudioCompanionClassroomContext(),
+				subscribe: (listener) => this.onBackgroundScreenshotStateChange(() => {
+					listener(this.getAudioCompanionClassroomContext());
+				}),
+			},
+			launchResolver: createWindowsPluginRelativeLaunchResolver(
+				createObsidianCompanionPluginDirectoryProvider(this),
+			),
+			processManager,
+			readinessProbe,
+			client: this.audioCompanionClient,
+			frameConsumer: this.audioFrameConsumer,
 		});
 		this.registerClassroomWorkbenchView();
 		this.classroomWorkbenchOpener = new ClassroomWorkbenchOpener(
@@ -171,6 +202,9 @@ export default class LectureWorkflowPlugin extends Plugin {
 	onunload(): void {
 		this.classroomWorkbenchOpener = null;
 		this.progressNotices.dispose();
+		this.audioCompanionSessionController?.dispose();
+		this.audioCompanionSessionController = null;
+		this.audioFrameConsumer = null;
 		this.audioCompanionClient?.dispose();
 		this.audioCompanionClient = null;
 		this.audioCaptureProbe?.dispose();
@@ -307,7 +341,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 		new Notice(`已将截图目标设为：${file.path}`);
 	}
 
-	startBackgroundScreenshotSession(): void {
+	async startBackgroundScreenshotSession(): Promise<void> {
 		if (!Platform.isDesktopApp) {
 			new Notice(mobileScreenshotUnsupportedMessage());
 			return;
@@ -329,6 +363,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 		const result = controller.start(file);
 		if (result === 'started') {
 			new Notice(`课堂监听已启动：${file.basename}`);
+			await this.startAudioCompanionSession();
 			return;
 		}
 		if (result === 'unsupported-platform') {
@@ -345,25 +380,29 @@ export default class LectureWorkflowPlugin extends Plugin {
 		new Notice('请先选择一篇 Markdown 课堂笔记。');
 	}
 
-	stopBackgroundScreenshotSession(): void {
-		const result = this.classroomSessionController?.stop('manual');
+	async stopBackgroundScreenshotSession(): Promise<void> {
+		let result: ReturnType<ClassroomSessionController<TFile>['stop']> | undefined;
+		try {
+			await this.audioCompanionSessionController?.stop();
+		} catch {
+			new Notice('系统音频停止确认失败，课堂监听仍将停止。');
+		} finally {
+			result = this.classroomSessionController?.stop('manual');
+		}
 		if (!result?.stopped) {
 			return;
 		}
 		new Notice(`课堂监听已停止，共保存 ${result.savedCount} 张截图。`);
 	}
 
-	private toggleClassroomListening(): void {
+	private async toggleClassroomListening(): Promise<void> {
 		const controller = this.classroomSessionController;
 		if (!controller) {
 			new Notice(backgroundScreenshotUnsupportedMessage());
 			return;
 		}
 		if (controller.getState().status === 'listening') {
-			const savedCount = controller.getState().savedCount;
-			if (controller.toggle(null) === 'stopped') {
-				new Notice(`课堂监听已停止，共保存 ${savedCount} 张截图。`);
-			}
+			await this.stopBackgroundScreenshotSession();
 			return;
 		}
 		if (!Platform.isDesktopApp) {
@@ -379,20 +418,45 @@ export default class LectureWorkflowPlugin extends Plugin {
 			new Notice('请先打开一篇课堂笔记，再启动课堂监听。');
 			return;
 		}
-		const result = controller.toggle(activeFile);
+		const result = controller.start(activeFile);
 		if (result === 'started') {
 			new Notice(`课堂监听已启动：${activeFile.basename}`);
-			return;
-		}
-		if (result === 'stopped') {
-			new Notice(`课堂监听已停止，共保存 ${controller.getState().savedCount} 张截图。`);
+			await this.startAudioCompanionSession();
 			return;
 		}
 		this.handleClassroomSessionStartFailure(result);
 	}
 
+	private async startAudioCompanionSession(): Promise<void> {
+		const controller = this.audioCompanionSessionController;
+		if (!controller) {
+			return;
+		}
+		let result;
+		try {
+			result = await controller.start();
+		} catch {
+			new Notice('系统音频助手启动失败，课堂截图监听将继续运行。');
+			return;
+		}
+		if (result === 'capturing' || result === 'busy') {
+			return;
+		}
+		const state = controller.state;
+		new Notice(runtimeErrorMessage(state.errorCode, state.remoteErrorCode)
+			|| '系统音频助手启动失败，课堂截图监听将继续运行。');
+	}
+
+	private async stopAudioCompanionSession(): Promise<void> {
+		try {
+			await this.audioCompanionSessionController?.stop();
+		} catch {
+			new Notice('无法确认系统音频已停止，请重新加载插件后检查。');
+		}
+	}
+
 	private handleClassroomSessionStartFailure(
-		result: Exclude<ReturnType<ClassroomSessionController<TFile>['toggle']>, 'started' | 'stopped'>,
+		result: Exclude<ReturnType<ClassroomSessionController<TFile>['start']>, 'started'>,
 	): void {
 		if (result === 'unsupported-platform') {
 			new Notice(mobileScreenshotUnsupportedMessage());
@@ -414,12 +478,26 @@ export default class LectureWorkflowPlugin extends Plugin {
 		return this.classroomSessionController?.subscribe(listener) ?? (() => undefined);
 	}
 
+	private getAudioCompanionClassroomContext(): {
+		sessionId: string;
+		startedAtUnixMs: number;
+	} | null {
+		const state = this.classroomSessionController?.getState();
+		if (state?.status !== 'listening' || !state.sessionId || !state.startedAt) {
+			return null;
+		}
+		return {
+			sessionId: state.sessionId,
+			startedAtUnixMs: state.startedAt.getTime(),
+		};
+	}
+
 	private initializeScreenshotBackgroundSession(): void {
 		this.screenshotBackgroundService = new ObsidianBackgroundScreenshotService(this.app);
 		this.screenshotStatusBarEl = this.addStatusBarItem();
 		this.screenshotStatusBarEl.addClass('is-hidden');
 		this.registerDomEvent(this.screenshotStatusBarEl, 'click', () => {
-			this.stopBackgroundScreenshotSession();
+			void this.stopBackgroundScreenshotSession();
 		});
 		const screenshotSession = new ScreenshotBackgroundSession<TFile>({
 			isDesktopApp: () => Platform.isDesktopApp,
@@ -533,7 +611,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 	private registerClassroomWorkbenchView(): void {
 		this.registerView(CLASSROOM_WORKBENCH_VIEW_TYPE, (leaf) => {
 			const audioProbe = this.audioCaptureProbe;
-			const audioCompanion = this.audioCompanionClient;
+			const audioCompanion = this.audioCompanionSessionController;
 			if (!audioProbe || !audioCompanion) {
 				throw new Error('Audio runtime is not initialized.');
 			}
@@ -543,6 +621,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 					this.onBackgroundScreenshotStateChange(listener),
 				startClassroom: () => this.startBackgroundScreenshotSession(),
 				stopClassroom: () => this.stopBackgroundScreenshotSession(),
+				startSystemAudio: () => this.startAudioCompanionSession(),
+				stopSystemAudio: () => this.stopAudioCompanionSession(),
 				getDismissMode: () => getClassroomWorkbenchDismissMode(
 					this.app.workspace.rightSplit,
 				),

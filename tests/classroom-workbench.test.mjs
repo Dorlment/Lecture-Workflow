@@ -106,23 +106,25 @@ test('plugin owns one runtime-only audio companion and disposes it on unload', a
 		readFile('classroom-workbench-view.ts', 'utf8'),
 	]);
 	assert.match(main, /audioCompanionClient = new AudioCompanionClient/);
-	assert.match(main, /getSessionContext:[\s\S]*?classroomSessionController\?\.getState\(\)/);
+	assert.match(main, /getSessionContext: \(\) => this\.getAudioCompanionClassroomContext\(\)/);
+	assert.match(main, /getAudioCompanionClassroomContext\(\)[\s\S]*?classroomSessionController\?\.getState\(\)/);
 	assert.match(main, /sessionId: state\.sessionId[\s\S]*?startedAtUnixMs: state\.startedAt\.getTime\(\)/);
 	assert.match(main, /onunload\(\)[\s\S]*?audioCompanionClient\?\.dispose\(\)/);
-	assert.match(workbench, /audioCompanion\.subscribe/);
-	assert.match(workbench, /unsubscribeAudioCompanion\?\.\(\)/);
+	assert.match(workbench, /new AudioCompanionWorkbenchBinding/);
+	assert.match(workbench, /audioCompanionBinding\?\.close\(\)/);
 });
 
-test('workbench shows companion foundation status without connection or capture controls', async () => {
+test('workbench shows companion runtime status, metrics, and explicit controls', async () => {
 	const workbench = await readFile('classroom-workbench-view.ts', 'utf8');
 	assert.match(workbench, /createCard\('系统音频助手'\)/);
-	assert.match(workbench, /系统音频助手尚未实现，本阶段仅建立通信基础。/);
-	for (const label of ['尚未配置', '未连接', '正在连接', '已连接', '协议不兼容', '连接失败']) {
-		assert.match(workbench, new RegExp(label));
-	}
+	assert.match(workbench, /系统音频仅在本机实时处理，不保存、不上传、不转写。/);
 	const card = workbench.match(/const companionCard[\s\S]*?const audioCard/)?.[0];
 	assert.ok(card);
-	assert.doesNotMatch(card, /createButton|连接助手|开始捕获|录制/);
+	assert.match(card, /'启动系统音频'/);
+	assert.match(card, /'停止系统音频'/);
+	assert.match(card, /已处理帧数/);
+	assert.match(card, /实时 RMS/);
+	assert.doesNotMatch(card, /'开始录制'|'上传音频'|'开始转写'/);
 });
 
 test('without an existing Leaf the opener creates, awaits, reveals, and activates the workbench', async () => {
