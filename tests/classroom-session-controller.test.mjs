@@ -200,10 +200,10 @@ test('Ribbon, command, settings, and status bar share the controller entry point
 test('start UI reads the current active Markdown file and uses exact safe notices', async () => {
 	const mainSource = await readFile('main.ts', 'utf8');
 	assert.match(mainSource, /toggleClassroomListening\(\)[\s\S]*?workspace\.getActiveFile\(\)/);
-	assert.match(mainSource, /controller\.toggle\(activeFile\)/);
+	assert.match(mainSource, /controller\.start\(activeFile\)/);
 	assert.match(mainSource, /请先打开一篇课堂笔记，再启动课堂监听。/);
 	assert.match(mainSource, /课堂监听已启动：\$\{activeFile\.basename\}/);
-	assert.match(mainSource, /课堂监听已停止，共保存 \$\{savedCount\} 张截图。/);
+	assert.match(mainSource, /课堂监听已停止，共保存 \$\{result\.savedCount\} 张截图。/);
 	assert.match(mainSource, /课堂监听中 · \$\{state\.targetName\} · 已保存 \$\{state\.savedCount\} 张/);
 });
 

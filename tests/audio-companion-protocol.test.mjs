@@ -158,9 +158,9 @@ function clientHarness(options = {}) {
 			return socket;
 		},
 		scheduler,
-		onAudioFrame: (frame) => frames.push(frame),
 		onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
 	});
+	client.subscribeAudioFrames((frame) => frames.push(frame));
 	client.subscribe((state) => states.push(state));
 	return {
 		client,
@@ -272,6 +272,69 @@ test('server authentication rejection is distinct and safely rejects connection'
 	assert.equal(harness.client.state.errorCode, 'auth-failed');
 });
 
+test('all stable remote ERROR codes are preserved without exposing remote messages', async () => {
+	for (const remoteCode of [
+		'AUTH_FAILED',
+		'PROTOCOL_MISMATCH',
+		'INVALID_REQUEST',
+		'SOURCE_UNAVAILABLE',
+		'FORMAT_UNSUPPORTED',
+		'CAPTURE_FAILED',
+		'BUSY',
+		'INTERNAL_ERROR',
+	]) {
+		const harness = clientHarness();
+		harness.configure();
+		const connected = harness.client.connect();
+		const socket = harness.sockets[0];
+		socket.open();
+		socket.message(JSON.stringify({
+			type: 'ERROR',
+			protocolVersion: 1,
+			code: remoteCode,
+			messageZh: 'should never escape the parser boundary',
+			retryable: false,
+		}));
+		await assert.rejects(connected, (error) => error.remoteErrorCode === remoteCode);
+		assert.equal(harness.client.state.remoteErrorCode, remoteCode);
+		assert.equal(harness.diagnostics.at(-1).remoteErrorCode, remoteCode);
+		assert.doesNotMatch(JSON.stringify(harness.client.state), /should never escape/);
+	}
+});
+
+test('malformed remote ERROR safely degrades without preserving untrusted content', async () => {
+	const harness = clientHarness();
+	harness.configure();
+	const connected = harness.client.connect();
+	const socket = harness.sockets[0];
+	socket.open();
+	socket.message(JSON.stringify({
+		type: 'ERROR',
+		protocolVersion: 1,
+		code: 'UNKNOWN_REMOTE_CODE',
+		messageZh: 'untrusted response body',
+		retryable: false,
+	}));
+	await assert.rejects(connected, (error) =>
+		error.code === 'remote-error' && error.remoteErrorCode === null);
+	assert.equal(harness.client.state.errorCode, 'remote-error');
+	assert.equal(harness.client.state.remoteErrorCode, null);
+	assert.doesNotMatch(JSON.stringify(harness.client.state), /untrusted response body/);
+});
+
+test('audio frame subscriptions can be removed without affecting protocol state', async () => {
+	const harness = clientHarness();
+	const socket = await connectReady(harness);
+	startCapturing(harness, socket);
+	const observed = [];
+	const unsubscribe = harness.client.subscribeAudioFrames((frame) => observed.push(frame.sequence));
+	socket.message(createFrame({ sequence: 1 }));
+	unsubscribe();
+	socket.message(createFrame({ sequence: 2, offsetMs: 12_540n }));
+	assert.deepEqual(observed, [1]);
+	assert.equal(harness.client.state.status, 'capturing');
+});
+
 test('incompatible protocol versions are rejected before READY is accepted', async () => {
 	const harness = clientHarness();
 	harness.configure();
@@ -322,6 +385,7 @@ test('authentication timeout starts after open and does not expose HELLO content
 	await rejected;
 	assert.deepEqual(harness.diagnostics, [{
 		code: 'auth-timeout',
+		remoteErrorCode: null,
 		stage: 'authenticating',
 		type: 'TimeoutError',
 	}]);
@@ -520,6 +584,7 @@ test('workbench status mapping covers all six companion display states', () => {
 	const base = {
 		configured: true,
 		errorCode: null,
+		remoteErrorCode: null,
 		helperVersion: null,
 		platform: null,
 		supportedSources: [],

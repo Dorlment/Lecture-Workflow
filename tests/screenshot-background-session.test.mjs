@@ -513,7 +513,7 @@ test('background production code has strict privacy and no persistence surface',
 
 test('background start fixes the active TFile without requiring an editor or editing mode', async () => {
 	const mainSource = await readFile('main.ts', 'utf8');
-	const method = mainSource.match(/startBackgroundScreenshotSession\(\): void \{[\s\S]*?\n\t\}/)?.[0];
+	const method = mainSource.match(/async startBackgroundScreenshotSession\(\): Promise<void> \{[\s\S]*?\n\t\}/)?.[0];
 	assert.ok(method);
 	assert.match(method, /workspace\.getActiveFile\(\)/);
 	assert.doesNotMatch(method, /MarkdownView|Editor|getMode|source/);

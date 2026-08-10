@@ -156,6 +156,11 @@
 	color: var(--text-muted);
 }
 
+.lecture-workflow-workbench-error {
+	color: var(--text-error);
+	white-space: normal;
+}
+
 .lecture-workflow-workbench-summary-secondary {
 	margin-block-start: 0.25rem !important;
 }

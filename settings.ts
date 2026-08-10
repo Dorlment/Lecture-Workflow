@@ -29,8 +29,8 @@ interface SettingsPlugin extends Plugin {
 	testTextProvider(id: TextProviderId): Promise<void>;
 	getBackgroundScreenshotState?(): ScreenshotBackgroundState;
 	useCurrentNoteForBackgroundScreenshots?(): void;
-	startBackgroundScreenshotSession?(): void;
-	stopBackgroundScreenshotSession?(): void;
+	startBackgroundScreenshotSession?(): void | Promise<void>;
+	stopBackgroundScreenshotSession?(): void | Promise<void>;
 	onBackgroundScreenshotStateChange?(
 		listener: (state: ScreenshotBackgroundState) => void,
 	): () => void;
@@ -271,8 +271,8 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 				button
 					.setButtonText('开始监听')
 					.setDisabled(state.status === 'listening')
-					.onClick(() => {
-						this.lectureWorkflowPlugin.startBackgroundScreenshotSession?.();
+					.onClick(async () => {
+						await this.lectureWorkflowPlugin.startBackgroundScreenshotSession?.();
 					});
 			})
 			.addButton((button) => {
@@ -280,8 +280,8 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 				button
 					.setButtonText('停止监听')
 					.setDisabled(state.status !== 'listening')
-					.onClick(() => {
-						this.lectureWorkflowPlugin.stopBackgroundScreenshotSession?.();
+					.onClick(async () => {
+						await this.lectureWorkflowPlugin.stopBackgroundScreenshotSession?.();
 					});
 			});
 

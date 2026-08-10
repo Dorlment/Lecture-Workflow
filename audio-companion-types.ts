@@ -70,6 +70,7 @@ export interface AudioCompanionClientState {
 	status: AudioCompanionClientStatus;
 	configured: boolean;
 	errorCode: AudioCompanionErrorCode | null;
+	remoteErrorCode: AudioCompanionRemoteErrorCode | null;
 	helperVersion: string | null;
 	platform: AudioCompanionPlatform | null;
 	supportedSources: AudioCompanionSource[];
@@ -212,6 +213,7 @@ export interface AudioCompanionScheduler {
 
 export interface AudioCompanionDiagnostic {
 	code: AudioCompanionErrorCode;
+	remoteErrorCode: AudioCompanionRemoteErrorCode | null;
 	stage: AudioCompanionClientStatus;
 	type: string;
 }
@@ -221,7 +223,6 @@ export interface AudioCompanionClientOptions {
 	getSessionContext(): AudioCompanionSessionContext | null;
 	webSocketFactory: AudioCompanionWebSocketFactory;
 	scheduler?: AudioCompanionScheduler;
-	onAudioFrame?(frame: AudioCompanionFrame): void;
 	onDiagnostic?(diagnostic: AudioCompanionDiagnostic): void;
 }
 
