@@ -25,6 +25,7 @@ export interface LectureWorkflowSettings {
 		workspaceId: string;
 		model: string;
 		visionModel: string;
+		asrModel: string;
 	};
 	customOpenAI: {
 		apiKey: string;

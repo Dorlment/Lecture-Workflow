@@ -17,6 +17,7 @@ import {
 } from './audio-companion-client';
 import { AudioCompanionSessionController } from './audio-companion-session-controller';
 import { AudioFrameConsumer } from './audio-frame-consumer';
+import { BailianStreamingAsrProvider } from './bailian-streaming-asr-provider';
 import { AiPreviewModal } from './ai-preview-modal';
 import { AiRetryModal } from './ai-retry-modal';
 import {
@@ -84,6 +85,10 @@ import { normalizeSettings } from './settings-data';
 import { createRuntimeNodeModuleLoader } from './runtime-node-loader';
 import { createObsidianCompanionPluginDirectoryProvider } from './obsidian-companion-plugin-directory';
 import { runtimeErrorMessage } from './audio-companion-runtime-ui';
+import { RealtimeAsrSessionController } from './realtime-asr-session-controller';
+import { RealtimeAsrTransportAbDiagnostic } from './realtime-asr-transport-ab-diagnostic';
+import { RealtimeAsrTransportAbModal } from './realtime-asr-transport-ab-modal';
+import { createNodeRealtimeAsrTransport } from './realtime-asr-websocket';
 import { ObsidianBackgroundScreenshotService } from './screenshot-background-service';
 import {
 	buildClassroomSessionId,
@@ -124,6 +129,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 	private audioCompanionClient: AudioCompanionClient | null = null;
 	private audioCompanionSessionController: AudioCompanionSessionController | null = null;
 	private audioFrameConsumer: AudioFrameConsumer | null = null;
+	private realtimeAsrSessionController: RealtimeAsrSessionController | null = null;
+	private realtimeAsrTransportAbModal: RealtimeAsrTransportAbModal | null = null;
 	private classroomWorkbenchOpener: ClassroomWorkbenchOpener<WorkspaceLeaf> | null = null;
 	private screenshotBackgroundService: ObsidianBackgroundScreenshotService | null = null;
 	private screenshotStatusBarEl: HTMLElement | null = null;
@@ -162,6 +169,25 @@ export default class LectureWorkflowPlugin extends Plugin {
 			client: this.audioCompanionClient,
 			frameConsumer: this.audioFrameConsumer,
 		});
+		this.realtimeAsrSessionController = new RealtimeAsrSessionController({
+			isSupportedRuntime: () => Platform.isDesktopApp && Platform.isWin,
+			getConfiguration: () => ({
+				workspaceId: this.settings.qwen.workspaceId,
+				region: this.settings.qwen.region,
+				model: this.settings.qwen.asrModel,
+			}),
+			getApiKey: () => this.settings.qwen.apiKey,
+			getClassroomSessionContext: () => this.getAudioCompanionClassroomContext(),
+			audio: this.audioCompanionSessionController,
+			providerFactory: (providerOptions) =>
+				new BailianStreamingAsrProvider({
+					configuration: providerOptions.configuration,
+					getApiKey: () => providerOptions.getApiKey(),
+					transportFactory: () => createNodeRealtimeAsrTransport(),
+					taskIdFactory: () => crypto.randomUUID(),
+					callbacks: providerOptions.callbacks,
+				}),
+		});
 		this.registerClassroomWorkbenchView();
 		this.classroomWorkbenchOpener = new ClassroomWorkbenchOpener(
 			this.app.workspace,
@@ -192,6 +218,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 			callback: () => this.openClassroomWorkbench(),
 		});
 
+		this.addCommand({
+			id: 'run-realtime-asr-transport-ab-diagnostic',
+			name: '运行Realtime ASR Transport A/B诊断（开发）',
+			callback: () => this.openRealtimeAsrTransportAbDiagnostic(),
+		});
+
 		this.addRibbonIcon('notebook-pen', 'Lecture Workflow', (event) => {
 			this.showRibbonMenu(event);
 		});
@@ -200,8 +232,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		this.realtimeAsrTransportAbModal?.close();
+		this.realtimeAsrTransportAbModal = null;
 		this.classroomWorkbenchOpener = null;
 		this.progressNotices.dispose();
+		this.realtimeAsrSessionController?.dispose();
+		this.realtimeAsrSessionController = null;
 		this.audioCompanionSessionController?.dispose();
 		this.audioCompanionSessionController = null;
 		this.audioFrameConsumer = null;
@@ -383,7 +419,11 @@ export default class LectureWorkflowPlugin extends Plugin {
 	async stopBackgroundScreenshotSession(): Promise<void> {
 		let result: ReturnType<ClassroomSessionController<TFile>['stop']> | undefined;
 		try {
-			await this.audioCompanionSessionController?.stop();
+			try {
+				await this.realtimeAsrSessionController?.stop();
+			} finally {
+				await this.audioCompanionSessionController?.stop();
+			}
 		} catch {
 			new Notice('系统音频停止确认失败，课堂监听仍将停止。');
 		} finally {
@@ -439,7 +479,11 @@ export default class LectureWorkflowPlugin extends Plugin {
 			new Notice('系统音频助手启动失败，课堂截图监听将继续运行。');
 			return;
 		}
-		if (result === 'capturing' || result === 'busy') {
+		if (result === 'capturing') {
+			await this.startRealtimeAsrSession();
+			return;
+		}
+		if (result === 'busy') {
 			return;
 		}
 		const state = controller.state;
@@ -449,10 +493,73 @@ export default class LectureWorkflowPlugin extends Plugin {
 
 	private async stopAudioCompanionSession(): Promise<void> {
 		try {
-			await this.audioCompanionSessionController?.stop();
+			try {
+				await this.realtimeAsrSessionController?.stop();
+			} finally {
+				await this.audioCompanionSessionController?.stop();
+			}
 		} catch {
 			new Notice('无法确认系统音频已停止，请重新加载插件后检查。');
 		}
+	}
+
+	private openRealtimeAsrTransportAbDiagnostic(): void {
+		if (this.realtimeAsrTransportAbModal) {
+			new Notice('Realtime ASR Transport A/B诊断已经打开。');
+			return;
+		}
+		const classroomActive = this.getBackgroundScreenshotState().status === 'listening';
+		const audioStatus = this.audioCompanionSessionController?.state.status;
+		const audioActive = audioStatus === 'launching'
+			|| audioStatus === 'waiting-for-readiness'
+			|| audioStatus === 'connecting'
+			|| audioStatus === 'ready'
+			|| audioStatus === 'capturing'
+			|| audioStatus === 'stopping';
+		const asrStatus = this.realtimeAsrSessionController?.state.status;
+		const asrActive = asrStatus === 'connecting'
+			|| asrStatus === 'starting-task'
+			|| asrStatus === 'streaming'
+			|| asrStatus === 'stopping';
+		if (classroomActive || audioActive || asrActive) {
+			new Notice('请先停止当前课堂监听和实时转写。');
+			return;
+		}
+		if (!Platform.isDesktopApp || !Platform.isWin) {
+			new Notice('Realtime ASR Transport A/B诊断仅支持 Windows 桌面端。');
+			return;
+		}
+		const diagnostic = new RealtimeAsrTransportAbDiagnostic({
+			getConfiguration: () => ({
+				workspaceId: this.settings.qwen.workspaceId,
+				region: this.settings.qwen.region,
+				model: this.settings.qwen.asrModel,
+			}),
+			getApiKey: () => this.settings.qwen.apiKey,
+		});
+		let modal: RealtimeAsrTransportAbModal;
+		modal = new RealtimeAsrTransportAbModal(this.app, diagnostic, () => {
+			this.openModals.delete(modal);
+			if (this.realtimeAsrTransportAbModal === modal) {
+				this.realtimeAsrTransportAbModal = null;
+			}
+		});
+		this.realtimeAsrTransportAbModal = modal;
+		this.openModals.add(modal);
+		modal.open();
+	}
+
+	private async startRealtimeAsrSession(): Promise<void> {
+		const controller = this.realtimeAsrSessionController;
+		if (!controller) return;
+		const result = await controller.start();
+		if (result === 'configuration-error') {
+			new Notice('实时转写未启动：请先配置 Qwen API key、Workspace ID 和实时转写模型。');
+		}
+	}
+
+	private async stopRealtimeAsrSession(): Promise<void> {
+		await this.realtimeAsrSessionController?.stop();
 	}
 
 	private handleClassroomSessionStartFailure(
@@ -612,7 +719,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 		this.registerView(CLASSROOM_WORKBENCH_VIEW_TYPE, (leaf) => {
 			const audioProbe = this.audioCaptureProbe;
 			const audioCompanion = this.audioCompanionSessionController;
-			if (!audioProbe || !audioCompanion) {
+			const realtimeAsr = this.realtimeAsrSessionController;
+			if (!audioProbe || !audioCompanion || !realtimeAsr) {
 				throw new Error('Audio runtime is not initialized.');
 			}
 			return new ClassroomWorkbenchView(leaf, {
@@ -623,6 +731,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 				stopClassroom: () => this.stopBackgroundScreenshotSession(),
 				startSystemAudio: () => this.startAudioCompanionSession(),
 				stopSystemAudio: () => this.stopAudioCompanionSession(),
+				startRealtimeAsr: () => this.startRealtimeAsrSession(),
+				stopRealtimeAsr: () => this.stopRealtimeAsrSession(),
 				getDismissMode: () => getClassroomWorkbenchDismissMode(
 					this.app.workspace.rightSplit,
 				),
@@ -630,7 +740,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 					this.app.workspace.rightSplit,
 					leaf,
 				),
-			}, audioProbe, audioCompanion);
+			}, audioProbe, audioCompanion, realtimeAsr);
 		});
 	}
 

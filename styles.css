@@ -311,3 +311,30 @@
 		text-align: start;
 	}
 }
+
+.lecture-workflow-asr-ab-modal {
+	max-width: min(96vw, 960px);
+}
+
+.lecture-workflow-asr-ab-results {
+	margin-block: var(--size-4-3);
+	overflow-x: auto;
+}
+
+.lecture-workflow-asr-ab-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--font-ui-small);
+}
+
+.lecture-workflow-asr-ab-table th,
+.lecture-workflow-asr-ab-table td {
+	padding: var(--size-2-2) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	text-align: start;
+	vertical-align: top;
+}
+
+.lecture-workflow-asr-ab-table thead th {
+	background: var(--background-secondary);
+}

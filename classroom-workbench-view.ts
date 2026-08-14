@@ -11,6 +11,18 @@ import type {
 } from './audio-companion-runtime-types';
 import { audioCompanionRuntimeUiState } from './audio-companion-runtime-ui';
 import { AudioCompanionWorkbenchBinding } from './audio-companion-workbench-binding';
+import {
+	realtimeAsrBooleanLabel,
+	realtimeAsrInboundEventKindLabel,
+	realtimeAsrOverflowReasonLabel,
+	realtimeAsrPumpBlockReasonLabel,
+	realtimeAsrRuntimeUiState,
+} from './realtime-asr-runtime-ui';
+import type {
+	RealtimeAsrRuntimeControl,
+	RealtimeAsrRuntimeState,
+} from './realtime-asr-types';
+import { RealtimeAsrWorkbenchBinding } from './realtime-asr-workbench-binding';
 import type {
 	AudioCaptureProbeState,
 	AudioInputDeviceOption,
@@ -30,6 +42,8 @@ export interface ClassroomWorkbenchHost {
 	stopClassroom(): void | Promise<void>;
 	startSystemAudio(): Promise<void>;
 	stopSystemAudio(): Promise<void>;
+	startRealtimeAsr(): Promise<void>;
+	stopRealtimeAsr(): Promise<void>;
 	getDismissMode(): ClassroomWorkbenchDismissMode;
 	dismissWorkbench(): ClassroomWorkbenchDismissMode;
 }
@@ -76,6 +90,81 @@ interface ClassroomWorkbenchUi {
 	audioCompanionErrorEl: HTMLElement;
 	startAudioCompanionButton: HTMLButtonElement;
 	stopAudioCompanionButton: HTMLButtonElement;
+	realtimeAsrStatusEl: HTMLElement;
+	realtimeAsrPartialEl: HTMLElement;
+	realtimeAsrFinalEl: HTMLElement;
+	realtimeAsrDurationEl: HTMLElement;
+	realtimeAsrErrorEl: HTMLElement;
+	realtimeAsrDiagnosticsEls: {
+		eventLoopLagCurrent: HTMLElement;
+		eventLoopLagMax: HTMLElement;
+		eventLoopLagP95: HTMLElement;
+		providerStatePublishCount: HTMLElement;
+		providerStatePublishRate: HTMLElement;
+		sessionNotificationCount: HTMLElement;
+		sessionNotificationRate: HTMLElement;
+		workbenchRenderCount: HTMLElement;
+		workbenchRenderRate: HTMLElement;
+		workbenchLastRenderDuration: HTMLElement;
+		workbenchMaxRenderDuration: HTMLElement;
+		maxStateListenerDuration: HTMLElement;
+		perMessageDeflateConfigured: HTMLElement;
+		perMessageDeflateNegotiated: HTMLElement;
+		produced: HTMLElement;
+		sent: HTMLElement;
+		queued: HTMLElement;
+		inFlight: HTMLElement;
+		outstanding: HTMLElement;
+		maxOutstanding: HTMLElement;
+		wsBuffered: HTMLElement;
+		maxWsBuffered: HTMLElement;
+		sendWriteLatency: HTMLElement;
+		oldestInFlightAge: HTMLElement;
+		maxObservedInFlightAge: HTMLElement;
+		dispatchCount: HTMLElement;
+		callbackSuccessCount: HTMLElement;
+		callbackFailureCount: HTMLElement;
+		callbackSettledCount: HTMLElement;
+		overflowReason: HTMLElement;
+		socketOpen: HTMLElement;
+		taskStarted: HTMLElement;
+		audioSendReady: HTMLElement;
+		pumpActive: HTMLElement;
+		pumpScheduled: HTMLElement;
+		stopping: HTMLElement;
+		lastPumpBlockReason: HTMLElement;
+		socketEverOpened: HTMLElement;
+		runTaskEverSent: HTMLElement;
+		taskEverStarted: HTMLElement;
+		firstAudioEverDispatched: HTMLElement;
+		warmupQueued: HTMLElement;
+		warmupDropped: HTMLElement;
+		warmupDroppedDuration: HTMLElement;
+		inboundMessageCount: HTMLElement;
+		taskStartedEventCount: HTMLElement;
+		resultGeneratedEventCount: HTMLElement;
+		taskFailedEventCount: HTMLElement;
+		taskFinishedEventCount: HTMLElement;
+		ignoredHeartbeatCount: HTMLElement;
+		unknownEventCount: HTMLElement;
+		lastInboundEventKind: HTMLElement;
+		lastInboundEventAge: HTMLElement;
+		firstResultGeneratedLatency: HTMLElement;
+		liveWallElapsed: HTMLElement;
+		producedAudioDuration: HTMLElement;
+		dispatchedAudioDuration: HTMLElement;
+		currentDispatchLead: HTMLElement;
+		maxDispatchLead: HTMLElement;
+		minDispatchInterval: HTMLElement;
+		averageDispatchInterval: HTMLElement;
+		currentDeadlineLateness: HTMLElement;
+		maxDeadlineLateness: HTMLElement;
+		controlledRecoveryDispatchCount: HTMLElement;
+		schedulerWakeupCount: HTMLElement;
+		maxDispatchBurstCount: HTMLElement;
+	};
+	startRealtimeAsrButton: HTMLButtonElement;
+	stopRealtimeAsrButton: HTMLButtonElement;
 }
 
 export class ClassroomWorkbenchView extends ItemView {
@@ -83,17 +172,20 @@ export class ClassroomWorkbenchView extends ItemView {
 	private unsubscribeClassroom: (() => void) | null = null;
 	private unsubscribeAudio: (() => void) | null = null;
 	private audioCompanionBinding: AudioCompanionWorkbenchBinding | null = null;
+	private realtimeAsrBinding: RealtimeAsrWorkbenchBinding | null = null;
 	private elapsedTimer: number | null = null;
 	private inputDeviceOptionsSignature = '';
 	private lastDeviceUnavailableNotice: string | null = null;
 	private lastClassroomState: ScreenshotBackgroundState | null = null;
 	private lastAudioCompanionState: AudioCompanionRuntimeState | null = null;
+	private lastRealtimeAsrState: RealtimeAsrRuntimeState | null = null;
 
 	constructor(
 		leaf: WorkspaceLeaf,
 		private readonly host: ClassroomWorkbenchHost,
 		private readonly audioProbe: AudioCaptureProbe,
 		private readonly audioCompanion: AudioCompanionRuntimeControl,
+		private readonly realtimeAsr: RealtimeAsrRuntimeControl,
 	) {
 		super(leaf);
 	}
@@ -126,6 +218,14 @@ export class ClassroomWorkbenchView extends ItemView {
 			cancel: (timerId) => window.clearTimeout(timerId),
 		});
 		this.audioCompanionBinding.open();
+		this.realtimeAsrBinding = new RealtimeAsrWorkbenchBinding({
+			readState: () => this.realtimeAsr.state,
+			subscribe: (listener) => this.realtimeAsr.subscribe(listener),
+			apply: (state) => this.applyRealtimeAsrState(state),
+			schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+			cancel: (timerId) => window.clearTimeout(timerId),
+		});
+		this.realtimeAsrBinding.open();
 		this.applyClassroomState(this.host.getClassroomState());
 		this.applyAudioState(this.audioProbe.state);
 		this.startElapsedTimer();
@@ -139,12 +239,15 @@ export class ClassroomWorkbenchView extends ItemView {
 		this.unsubscribeAudio = null;
 		this.audioCompanionBinding?.close();
 		this.audioCompanionBinding = null;
+		this.realtimeAsrBinding?.close();
+		this.realtimeAsrBinding = null;
 		this.stopElapsedTimer();
 		await this.audioProbe.stop();
 		this.inputDeviceOptionsSignature = '';
 		this.lastDeviceUnavailableNotice = null;
 		this.lastClassroomState = null;
 		this.lastAudioCompanionState = null;
+		this.lastRealtimeAsrState = null;
 		this.ui = null;
 		this.contentEl.empty();
 	}
@@ -244,6 +347,103 @@ export class ClassroomWorkbenchView extends ItemView {
 		);
 		companionCard.createEl('p', {
 			text: '系统音频仅在本机实时处理，不保存、不上传、不转写。',
+			cls: 'lecture-workflow-workbench-help',
+		});
+
+		const asrCard = this.createCard('实时转写');
+		const realtimeAsrStatus = summaryRow(asrCard, '当前状态');
+		const realtimeAsrPartial = summaryRow(asrCard, '当前识别');
+		const realtimeAsrFinal = summaryRow(asrCard, '最近定稿');
+		const realtimeAsrDuration = summaryRow(asrCard, '已发送音频');
+		const asrDetails = asrCard.createEl('details');
+		asrDetails.createEl('summary', { text: '发送详细状态' });
+		const realtimeAsrDiagnosticsEls = {
+			eventLoopLagCurrent: summaryRow(asrDetails, '事件循环当前延迟'),
+			eventLoopLagMax: summaryRow(asrDetails, '事件循环最大延迟'),
+			eventLoopLagP95: summaryRow(asrDetails, '事件循环 P95 延迟'),
+			providerStatePublishCount: summaryRow(asrDetails, 'Provider 状态发布数'),
+			providerStatePublishRate: summaryRow(asrDetails, 'Provider 状态发布频率'),
+			sessionNotificationCount: summaryRow(asrDetails, 'Session 通知数'),
+			sessionNotificationRate: summaryRow(asrDetails, 'Session 通知频率'),
+			workbenchRenderCount: summaryRow(asrDetails, 'Workbench 渲染数'),
+			workbenchRenderRate: summaryRow(asrDetails, 'Workbench 渲染频率'),
+			workbenchLastRenderDuration: summaryRow(asrDetails, 'Workbench 最近渲染耗时'),
+			workbenchMaxRenderDuration: summaryRow(asrDetails, 'Workbench 最大渲染耗时'),
+			maxStateListenerDuration: summaryRow(asrDetails, '状态监听最大耗时'),
+			perMessageDeflateConfigured: summaryRow(asrDetails, 'permessage-deflate 配置'),
+			perMessageDeflateNegotiated: summaryRow(asrDetails, 'permessage-deflate 已协商'),
+			produced: summaryRow(asrDetails, '已生成块'),
+			sent: summaryRow(asrDetails, '已发送块'),
+			queued: summaryRow(asrDetails, '排队块'),
+			inFlight: summaryRow(asrDetails, '待回调发送'),
+			outstanding: summaryRow(asrDetails, '未结算块'),
+			maxOutstanding: summaryRow(asrDetails, '最大未结算块'),
+			wsBuffered: summaryRow(asrDetails, 'WebSocket 缓冲字节'),
+			maxWsBuffered: summaryRow(asrDetails, '最大 WebSocket 缓冲'),
+			sendWriteLatency: summaryRow(asrDetails, '本地写出延迟'),
+			oldestInFlightAge: summaryRow(asrDetails, '最老 inFlight 年龄'),
+			maxObservedInFlightAge: summaryRow(asrDetails, '历史最大 inFlight 年龄'),
+			dispatchCount: summaryRow(asrDetails, '已 dispatch 块'),
+			callbackSuccessCount: summaryRow(asrDetails, 'Callback 成功'),
+			callbackFailureCount: summaryRow(asrDetails, 'Callback 失败'),
+			callbackSettledCount: summaryRow(asrDetails, 'Callback 已结算'),
+			overflowReason: summaryRow(asrDetails, '缓冲溢出原因'),
+			socketOpen: summaryRow(asrDetails, 'Socket 已打开'),
+			taskStarted: summaryRow(asrDetails, 'Task 已启动'),
+			audioSendReady: summaryRow(asrDetails, '音频发送就绪'),
+			pumpActive: summaryRow(asrDetails, 'Pump 运行中'),
+			pumpScheduled: summaryRow(asrDetails, 'Pump 待运行'),
+			stopping: summaryRow(asrDetails, '正在停止'),
+			lastPumpBlockReason: summaryRow(asrDetails, 'Pump 阻断原因'),
+			socketEverOpened: summaryRow(asrDetails, 'Socket 曾打开'),
+			runTaskEverSent: summaryRow(asrDetails, 'run-task 曾发送'),
+			taskEverStarted: summaryRow(asrDetails, 'Task 曾启动'),
+			firstAudioEverDispatched: summaryRow(asrDetails, '首个音频曾发送'),
+			warmupQueued: summaryRow(asrDetails, 'Warm-up 当前块数'),
+			warmupDropped: summaryRow(asrDetails, 'Warm-up 已丢弃块数'),
+			warmupDroppedDuration: summaryRow(asrDetails, 'Warm-up 已丢弃时长'),
+			inboundMessageCount: summaryRow(asrDetails, '入站消息数'),
+			taskStartedEventCount: summaryRow(asrDetails, 'task-started 数'),
+			resultGeneratedEventCount: summaryRow(asrDetails, 'result-generated 数'),
+			taskFailedEventCount: summaryRow(asrDetails, 'task-failed 数'),
+			taskFinishedEventCount: summaryRow(asrDetails, 'task-finished 数'),
+			ignoredHeartbeatCount: summaryRow(asrDetails, '已忽略心跳数'),
+			unknownEventCount: summaryRow(asrDetails, '未知事件数'),
+			lastInboundEventKind: summaryRow(asrDetails, '最近入站事件'),
+			lastInboundEventAge: summaryRow(asrDetails, '最近入站事件年龄'),
+			firstResultGeneratedLatency: summaryRow(asrDetails, '首个结果延迟'),
+			liveWallElapsed: summaryRow(asrDetails, 'Live 墙钟时长'),
+			producedAudioDuration: summaryRow(asrDetails, '已生成 Live 音频'),
+			dispatchedAudioDuration: summaryRow(asrDetails, '已 Dispatch 音频'),
+			currentDispatchLead: summaryRow(asrDetails, '当前 Dispatch 超前'),
+			maxDispatchLead: summaryRow(asrDetails, '最大 Dispatch 超前'),
+			minDispatchInterval: summaryRow(asrDetails, '实际最小 Dispatch 间隔'),
+			averageDispatchInterval: summaryRow(asrDetails, '平均 Dispatch 间隔'),
+			currentDeadlineLateness: summaryRow(asrDetails, '当前 Deadline 迟到'),
+			maxDeadlineLateness: summaryRow(asrDetails, '最大 Deadline 迟到'),
+			controlledRecoveryDispatchCount: summaryRow(asrDetails, '受控回正 Dispatch 数'),
+			schedulerWakeupCount: summaryRow(asrDetails, '调度器唤醒数'),
+			maxDispatchBurstCount: summaryRow(asrDetails, '最大 Dispatch 突发数'),
+		};
+		const realtimeAsrError = asrCard.createEl('p', {
+			text: '',
+			cls: 'lecture-workflow-workbench-help lecture-workflow-workbench-error',
+		});
+		const asrActions = asrCard.createDiv({
+			cls: 'lecture-workflow-workbench-actions lecture-workflow-workbench-actions-two',
+		});
+		const startRealtimeAsrButton = this.createButton(
+			asrActions,
+			'启动实时转写',
+			() => this.host.startRealtimeAsr(),
+		);
+		const stopRealtimeAsrButton = this.createButton(
+			asrActions,
+			'停止实时转写',
+			() => this.host.stopRealtimeAsr(),
+		);
+		asrCard.createEl('p', {
+			text: '实时文字仅保存在本次插件运行内存中，不写入笔记、不保存录音。',
 			cls: 'lecture-workflow-workbench-help',
 		});
 
@@ -382,6 +582,14 @@ export class ClassroomWorkbenchView extends ItemView {
 			audioCompanionErrorEl: audioCompanionError,
 			startAudioCompanionButton,
 			stopAudioCompanionButton,
+			realtimeAsrStatusEl: realtimeAsrStatus,
+			realtimeAsrPartialEl: realtimeAsrPartial,
+			realtimeAsrFinalEl: realtimeAsrFinal,
+			realtimeAsrDurationEl: realtimeAsrDuration,
+			realtimeAsrErrorEl: realtimeAsrError,
+			realtimeAsrDiagnosticsEls,
+			startRealtimeAsrButton,
+			stopRealtimeAsrButton,
 		};
 	}
 
@@ -523,6 +731,195 @@ export class ClassroomWorkbenchView extends ItemView {
 		ui.startAudioCompanionButton.setText(presentation.startLabel);
 		ui.startAudioCompanionButton.disabled = !presentation.canStart;
 		ui.stopAudioCompanionButton.disabled = !presentation.canStop;
+		if (this.lastRealtimeAsrState) this.applyRealtimeAsrState(this.lastRealtimeAsrState);
+	}
+
+	private applyRealtimeAsrState(state: RealtimeAsrRuntimeState): void {
+		this.lastRealtimeAsrState = state;
+		const ui = this.ui;
+		if (!ui) return;
+		const presentation = realtimeAsrRuntimeUiState(
+			state,
+			this.lastAudioCompanionState?.status === 'capturing',
+		);
+		ui.realtimeAsrStatusEl.setText(presentation.statusLabel);
+		ui.realtimeAsrPartialEl.setText(state.partialText || '无');
+		ui.realtimeAsrFinalEl.setText(state.lastFinalText || '无');
+		ui.realtimeAsrDurationEl.setText(formatAudioDuration(state.sentAudioDurationMs));
+		const diagnostics = state.diagnostics;
+		ui.realtimeAsrDiagnosticsEls.eventLoopLagCurrent.setText(
+			`${diagnostics.eventLoopLagCurrentMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.eventLoopLagMax.setText(
+			`${diagnostics.eventLoopLagMaxMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.eventLoopLagP95.setText(
+			`${diagnostics.eventLoopLagP95Ms} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.providerStatePublishCount.setText(
+			String(diagnostics.providerStatePublishCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.providerStatePublishRate.setText(
+			`${diagnostics.providerStatePublishRate}/s`,
+		);
+		ui.realtimeAsrDiagnosticsEls.sessionNotificationCount.setText(
+			String(diagnostics.sessionNotificationCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.sessionNotificationRate.setText(
+			`${diagnostics.sessionNotificationRate}/s`,
+		);
+		ui.realtimeAsrDiagnosticsEls.workbenchRenderCount.setText(
+			String(diagnostics.workbenchRenderCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.workbenchRenderRate.setText(
+			`${diagnostics.workbenchRenderRate}/s`,
+		);
+		ui.realtimeAsrDiagnosticsEls.workbenchLastRenderDuration.setText(
+			`${diagnostics.workbenchLastRenderDurationMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.workbenchMaxRenderDuration.setText(
+			`${diagnostics.workbenchMaxRenderDurationMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.maxStateListenerDuration.setText(
+			`${diagnostics.maxStateListenerDurationMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.perMessageDeflateConfigured.setText(
+			realtimeAsrBooleanLabel(diagnostics.perMessageDeflateConfigured),
+		);
+		ui.realtimeAsrDiagnosticsEls.perMessageDeflateNegotiated.setText(
+			realtimeAsrBooleanLabel(diagnostics.perMessageDeflateNegotiated),
+		);
+		ui.realtimeAsrDiagnosticsEls.produced.setText(String(diagnostics.producedChunkCount));
+		ui.realtimeAsrDiagnosticsEls.sent.setText(String(diagnostics.sentChunkCount));
+		ui.realtimeAsrDiagnosticsEls.queued.setText(String(diagnostics.queuedChunkCount));
+		ui.realtimeAsrDiagnosticsEls.inFlight.setText(String(diagnostics.inFlightSendCount));
+		ui.realtimeAsrDiagnosticsEls.outstanding.setText(String(diagnostics.outstandingChunkCount));
+		ui.realtimeAsrDiagnosticsEls.maxOutstanding.setText(
+			String(diagnostics.maxOutstandingChunkCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.wsBuffered.setText(String(diagnostics.wsBufferedAmount));
+		ui.realtimeAsrDiagnosticsEls.maxWsBuffered.setText(
+			String(diagnostics.maxWsBufferedAmount),
+		);
+		ui.realtimeAsrDiagnosticsEls.sendWriteLatency.setText(
+			diagnostics.sendWriteLatencyMs === null ? '无' : `${diagnostics.sendWriteLatencyMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.oldestInFlightAge.setText(
+			diagnostics.oldestInFlightAgeMs === null ? '无' : `${diagnostics.oldestInFlightAgeMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.maxObservedInFlightAge.setText(
+			`${diagnostics.maxObservedInFlightAgeMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.dispatchCount.setText(String(diagnostics.dispatchChunkCount));
+		ui.realtimeAsrDiagnosticsEls.callbackSuccessCount.setText(
+			String(diagnostics.sendCallbackSuccessCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.callbackFailureCount.setText(
+			String(diagnostics.sendCallbackFailureCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.callbackSettledCount.setText(
+			String(diagnostics.sendCallbackSettledCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.overflowReason.setText(
+			realtimeAsrOverflowReasonLabel(diagnostics.overflowReason),
+		);
+		ui.realtimeAsrDiagnosticsEls.socketOpen.setText(
+			realtimeAsrBooleanLabel(diagnostics.socketOpen),
+		);
+		ui.realtimeAsrDiagnosticsEls.taskStarted.setText(
+			realtimeAsrBooleanLabel(diagnostics.taskStarted),
+		);
+		ui.realtimeAsrDiagnosticsEls.audioSendReady.setText(
+			realtimeAsrBooleanLabel(diagnostics.audioSendReady),
+		);
+		ui.realtimeAsrDiagnosticsEls.pumpActive.setText(
+			realtimeAsrBooleanLabel(diagnostics.pumpActive),
+		);
+		ui.realtimeAsrDiagnosticsEls.pumpScheduled.setText(
+			realtimeAsrBooleanLabel(diagnostics.pumpScheduled),
+		);
+		ui.realtimeAsrDiagnosticsEls.stopping.setText(
+			realtimeAsrBooleanLabel(diagnostics.stopping),
+		);
+		ui.realtimeAsrDiagnosticsEls.lastPumpBlockReason.setText(
+			realtimeAsrPumpBlockReasonLabel(diagnostics.lastPumpBlockReason),
+		);
+		ui.realtimeAsrDiagnosticsEls.socketEverOpened.setText(
+			realtimeAsrBooleanLabel(diagnostics.socketEverOpened),
+		);
+		ui.realtimeAsrDiagnosticsEls.runTaskEverSent.setText(
+			realtimeAsrBooleanLabel(diagnostics.runTaskEverSent),
+		);
+		ui.realtimeAsrDiagnosticsEls.taskEverStarted.setText(
+			realtimeAsrBooleanLabel(diagnostics.taskEverStarted),
+		);
+		ui.realtimeAsrDiagnosticsEls.firstAudioEverDispatched.setText(
+			realtimeAsrBooleanLabel(diagnostics.firstAudioEverDispatched),
+		);
+		ui.realtimeAsrDiagnosticsEls.warmupQueued.setText(
+			String(diagnostics.warmupQueuedChunkCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.warmupDropped.setText(
+			String(diagnostics.warmupDroppedChunkCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.warmupDroppedDuration.setText(
+			formatAudioDuration(diagnostics.warmupDroppedDurationMs),
+		);
+		ui.realtimeAsrDiagnosticsEls.inboundMessageCount.setText(String(diagnostics.inboundMessageCount));
+		ui.realtimeAsrDiagnosticsEls.taskStartedEventCount.setText(String(diagnostics.taskStartedEventCount));
+		ui.realtimeAsrDiagnosticsEls.resultGeneratedEventCount.setText(String(diagnostics.resultGeneratedEventCount));
+		ui.realtimeAsrDiagnosticsEls.taskFailedEventCount.setText(String(diagnostics.taskFailedEventCount));
+		ui.realtimeAsrDiagnosticsEls.taskFinishedEventCount.setText(String(diagnostics.taskFinishedEventCount));
+		ui.realtimeAsrDiagnosticsEls.ignoredHeartbeatCount.setText(String(diagnostics.ignoredHeartbeatCount));
+		ui.realtimeAsrDiagnosticsEls.unknownEventCount.setText(String(diagnostics.unknownEventCount));
+		ui.realtimeAsrDiagnosticsEls.lastInboundEventKind.setText(
+			realtimeAsrInboundEventKindLabel(diagnostics.lastInboundEventKind),
+		);
+		ui.realtimeAsrDiagnosticsEls.lastInboundEventAge.setText(
+			diagnostics.lastInboundEventAgeMs === null ? '无' : `${diagnostics.lastInboundEventAgeMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.firstResultGeneratedLatency.setText(
+			diagnostics.firstResultGeneratedLatencyMs === null
+				? '无'
+				: `${diagnostics.firstResultGeneratedLatencyMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.liveWallElapsed.setText(`${diagnostics.liveWallElapsedMs} ms`);
+		ui.realtimeAsrDiagnosticsEls.producedAudioDuration.setText(
+			`${diagnostics.producedAudioDurationMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.dispatchedAudioDuration.setText(
+			`${diagnostics.dispatchedAudioDurationMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.currentDispatchLead.setText(
+			`${diagnostics.currentDispatchLeadMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.maxDispatchLead.setText(`${diagnostics.maxDispatchLeadMs} ms`);
+		ui.realtimeAsrDiagnosticsEls.minDispatchInterval.setText(
+			diagnostics.minDispatchIntervalMs === null ? '无' : `${diagnostics.minDispatchIntervalMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.averageDispatchInterval.setText(
+			`${diagnostics.averageDispatchIntervalMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.currentDeadlineLateness.setText(
+			`${diagnostics.currentDeadlineLatenessMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.maxDeadlineLateness.setText(
+			`${diagnostics.maxDeadlineLatenessMs} ms`,
+		);
+		ui.realtimeAsrDiagnosticsEls.controlledRecoveryDispatchCount.setText(
+			String(diagnostics.controlledRecoveryDispatchCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.schedulerWakeupCount.setText(
+			String(diagnostics.schedulerWakeupCount),
+		);
+		ui.realtimeAsrDiagnosticsEls.maxDispatchBurstCount.setText(
+			String(diagnostics.maxDispatchBurstCount),
+		);
+		ui.realtimeAsrErrorEl.setText(presentation.errorMessage);
+		ui.realtimeAsrErrorEl.toggleClass('is-hidden', !presentation.errorMessage);
+		ui.startRealtimeAsrButton.setText(presentation.startLabel);
+		ui.startRealtimeAsrButton.disabled = !presentation.canStart;
+		ui.stopRealtimeAsrButton.disabled = !presentation.canStop;
 	}
 
 	private updateAudioInputOptions(
@@ -609,6 +1006,13 @@ export function formatClassroomElapsed(state: ScreenshotBackgroundState): string
 	return [hours, minutes, seconds]
 		.map((value) => String(value).padStart(2, '0'))
 		.join(':');
+}
+
+function formatAudioDuration(durationMs: number): string {
+	const totalSeconds = Math.max(0, Math.floor(durationMs / 1_000));
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function audioSourceLabel(state: AudioCaptureProbeState): string {

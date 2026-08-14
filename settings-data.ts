@@ -7,6 +7,7 @@ import type { LectureWorkflowSettings } from './types';
 import { MAX_VISION_IMAGE_COUNT } from './vision-limits';
 
 export const QWEN_DEFAULT_VISION_MODEL = 'qwen3-vl-plus';
+export const QWEN_DEFAULT_ASR_MODEL = 'qwen-audio-3.0-asr-flash-streaming';
 
 export const DEFAULT_SETTINGS: LectureWorkflowSettings = {
 	notesFolder: '课堂笔记',
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: LectureWorkflowSettings = {
 		workspaceId: '',
 		model: QWEN_DEFAULT_MODEL,
 		visionModel: QWEN_DEFAULT_VISION_MODEL,
+		asrModel: QWEN_DEFAULT_ASR_MODEL,
 	},
 	customOpenAI: {
 		apiKey: '',
