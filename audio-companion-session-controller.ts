@@ -49,6 +49,7 @@ export interface AudioCompanionSessionControllerOptions {
 export class AudioCompanionSessionController {
 	private currentState: AudioCompanionRuntimeState = emptyRuntimeState();
 	private readonly listeners = new Set<(state: AudioCompanionRuntimeState) => void>();
+	private readonly validatedFrameListeners = new Set<(frame: import('./audio-companion-types').AudioCompanionFrame) => void>();
 	private readonly scheduler: AudioCompanionRuntimeScheduler;
 	private startTask: Promise<AudioCompanionRuntimeStartResult> | null = null;
 	private stopTask: Promise<void> | null = null;
@@ -59,6 +60,7 @@ export class AudioCompanionSessionController {
 	private clientUnsubscribe: (() => void) | null = null;
 	private classroomUnsubscribe: (() => void) | null = null;
 	private processMonitor: Promise<void> | null = null;
+	private activeSessionContext: AudioCompanionSessionContext | null = null;
 	private runVersion = 0;
 	private monitorClientErrors = false;
 	private disposed = false;
@@ -69,6 +71,10 @@ export class AudioCompanionSessionController {
 
 	get state(): AudioCompanionRuntimeState {
 		return { ...this.currentState };
+	}
+
+	get sessionContext(): AudioCompanionSessionContext | null {
+		return this.activeSessionContext ? { ...this.activeSessionContext } : null;
 	}
 
 	start(): Promise<AudioCompanionRuntimeStartResult> {
@@ -112,6 +118,14 @@ export class AudioCompanionSessionController {
 		return () => this.listeners.delete(listener);
 	}
 
+	subscribeValidatedFrames(
+		listener: (frame: import('./audio-companion-types').AudioCompanionFrame) => void,
+	): () => void {
+		if (this.disposed) return () => undefined;
+		this.validatedFrameListeners.add(listener);
+		return () => this.validatedFrameListeners.delete(listener);
+	}
+
 	dispose(): void {
 		if (this.disposed) {
 			return;
@@ -125,7 +139,9 @@ export class AudioCompanionSessionController {
 		this.options.processManager.dispose();
 		this.options.frameConsumer.dispose();
 		this.token = null;
+		this.activeSessionContext = null;
 		this.listeners.clear();
+		this.validatedFrameListeners.clear();
 	}
 
 	private async startInternal(): Promise<AudioCompanionRuntimeStartResult> {
@@ -209,6 +225,7 @@ export class AudioCompanionSessionController {
 			}
 			await waitForCapturing;
 			this.assertCurrentRun(runVersion);
+			this.activeSessionContext = { ...session };
 			this.monitorClientErrors = true;
 			this.setStatus('capturing');
 			return 'capturing';
@@ -277,6 +294,7 @@ export class AudioCompanionSessionController {
 		this.runAbort = null;
 		this.releaseSubscriptions();
 		this.options.client.clearConfiguration();
+		this.activeSessionContext = null;
 		try {
 			await this.options.processManager.shutdown();
 		} finally {
@@ -294,6 +312,13 @@ export class AudioCompanionSessionController {
 				return;
 			}
 			this.options.frameConsumer.consume(frame);
+			for (const listener of this.validatedFrameListeners) {
+				try {
+					listener(frame);
+				} catch {
+					// Downstream consumers cannot interrupt the validated audio run.
+				}
+			}
 			const consumerState = this.options.frameConsumer.state;
 			this.setState({
 				...this.currentState,

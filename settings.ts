@@ -500,6 +500,9 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		this.addTextSetting(containerEl, 'Text Model', settings.qwen.model, async (value) => {
 			await this.updateSettings((next) => { next.qwen.model = value.trim(); });
 		});
+		this.addTextSetting(containerEl, 'Realtime ASR Model', settings.qwen.asrModel, async (value) => {
+			await this.updateSettings((next) => { next.qwen.asrModel = value.trim(); });
+		});
 		this.addTestButton(containerEl, '测试 Qwen 连接', 'qwen');
 	}
 

@@ -289,6 +289,10 @@ test('start reuses classroom session and reaches capturing through the existing 
 	assert.match(harness.processManager.startCalls[0].token, /^[A-Za-z0-9_-]{43}$/);
 	assert.deepEqual(harness.client.startCalls, ['windows-wasapi-loopback']);
 	assert.equal(harness.controller.state.status, 'capturing');
+	assert.deepEqual(harness.controller.sessionContext, {
+		sessionId: 'class-20260810',
+		startedAtUnixMs: 1_000_000,
+	});
 	assert.equal(harness.client.frameListeners.size, 1);
 	assert.equal(harness.classroom.listeners.size, 1);
 	assert.equal(Object.hasOwn(harness.controller.state, 'token'), false);
@@ -296,6 +300,10 @@ test('start reuses classroom session and reaches capturing through the existing 
 
 test('frames update safe metrics only while the session subscription is active', async () => {
 	const harness = controllerHarness();
+	const validatedFrames = [];
+	const unsubscribeValidated = harness.controller.subscribeValidatedFrames(
+		(value) => validatedFrames.push(value),
+	);
 	await harness.controller.start();
 	const pcm = frame().pcm;
 	const original = pcm.slice();
@@ -303,10 +311,14 @@ test('frames update safe metrics only while the session subscription is active',
 	assert.equal(harness.controller.state.frameCount, 1);
 	assert.ok(harness.controller.state.rms > 0);
 	assert.deepEqual(pcm, original);
+	assert.equal(validatedFrames.length, 1);
+	assert.equal(validatedFrames[0].pcm, pcm);
 	await harness.controller.stop();
 	assert.equal(harness.client.frameListeners.size, 0);
 	harness.client.emitFrame(frame(1));
 	assert.equal(harness.controller.state.frameCount, 1);
+	assert.equal(validatedFrames.length, 1);
+	unsubscribeValidated();
 });
 
 test('normal stop clears client configuration and shuts down the owned child', async () => {
@@ -317,6 +329,7 @@ test('normal stop clears client configuration and shuts down the owned child', a
 	assert.equal(harness.client.clearCalls, 1);
 	assert.equal(harness.processManager.shutdownCalls, 1);
 	assert.equal(harness.classroom.listeners.size, 0);
+	assert.equal(harness.controller.sessionContext, null);
 	assert.equal(harness.controller.state.status, 'stopped');
 });
 
