@@ -44,6 +44,7 @@ export interface TranscriptPersistenceOptions {
 export const DEFAULT_MAX_BUFFERED_FINALS = 10;
 export const DEFAULT_MAX_FLUSH_INTERVAL_MS = 5_000;
 export const STOP_FLUSH_TIMEOUT_MS = 5_000;
+export const MAX_PENDING_TRANSCRIPT_ENTRIES = 100;
 
 export class RealtimeAsrTranscriptPersistence {
 	private readonly idFactory: () => string;
@@ -84,10 +85,15 @@ export class RealtimeAsrTranscriptPersistence {
 		this.seenSentenceIds.clear();
 	}
 
+	get pendingOverflow(): boolean {
+		return this.buffer.length >= MAX_PENDING_TRANSCRIPT_ENTRIES;
+	}
+
 	receiveSegment(segment: RealtimeAsrSegment, audioBaseOffsetMs: number | null): void {
 		if (!segment.isFinal) return;
 		if (this.currentRunId === null || this.currentClassroomSessionId === null) return;
 		if (this.seenSentenceIds.has(segment.sentenceId)) return;
+		if (this.buffer.length >= MAX_PENDING_TRANSCRIPT_ENTRIES) return;
 
 		const classroomOffsetMs = computeClassroomOffsetMs(audioBaseOffsetMs, segment.beginTimeMs);
 		const classroomEndOffsetMs = computeClassroomOffsetMs(audioBaseOffsetMs, segment.endTimeMs);

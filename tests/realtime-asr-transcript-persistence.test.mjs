@@ -23,6 +23,7 @@ const api = await import(`data:text/javascript,${encodeURIComponent(source)}`);
 const {
 	RealtimeAsrTranscriptPersistence,
 	computeClassroomOffsetMs,
+	MAX_PENDING_TRANSCRIPT_ENTRIES,
 } = api;
 
 function createFakeScheduler() {
@@ -295,4 +296,89 @@ test('audioBaseOffsetMs null prevents entry', () => {
 	persistence.receiveSegment(createFinalSegment(1, 'text', 0, 100), null);
 
 	assert.equal(persistence.pendingCount(), 0);
+});
+
+test('P1-1A: normal operation with regular flush does not trigger overflow', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	for (let run = 0; run < 20; run++) {
+		persistence.beginRun('session-1');
+		for (let i = 0; i < 10; i++) {
+			persistence.receiveSegment(createFinalSegment(i, `text-${run}-${i}`, i * 100, (i + 1) * 100), 0);
+		}
+		persistence.endRun();
+		const batch = persistence.prepareFlush();
+		assert.ok(batch);
+		persistence.commitFlush(batch.token);
+	}
+
+	assert.equal(persistence.pendingCount(), 0);
+	assert.equal(persistence.pendingOverflow, false);
+});
+
+test('P1-1B: multiple runs without flush hit cap and stop growing', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	for (let run = 0; run < 15; run++) {
+		persistence.beginRun('session-1');
+		for (let i = 0; i < 10; i++) {
+			persistence.receiveSegment(createFinalSegment(i, `text-${run}-${i}`, i * 100, (i + 1) * 100), 0);
+		}
+		persistence.endRun();
+	}
+
+	assert.equal(persistence.pendingCount(), MAX_PENDING_TRANSCRIPT_ENTRIES);
+	assert.equal(persistence.pendingOverflow, true);
+});
+
+test('P1-1C: recovery after overflow via flush', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	for (let run = 0; run < 15; run++) {
+		persistence.beginRun('session-1');
+		for (let i = 0; i < 10; i++) {
+			persistence.receiveSegment(createFinalSegment(i, `text-${run}-${i}`, i * 100, (i + 1) * 100), 0);
+		}
+		persistence.endRun();
+	}
+
+	assert.equal(persistence.pendingOverflow, true);
+	assert.equal(persistence.pendingCount(), MAX_PENDING_TRANSCRIPT_ENTRIES);
+
+	const batch = persistence.prepareFlush();
+	assert.ok(batch);
+	assert.equal(batch.entries.length, MAX_PENDING_TRANSCRIPT_ENTRIES);
+	persistence.commitFlush(batch.token);
+
+	assert.equal(persistence.pendingCount(), 0);
+	assert.equal(persistence.pendingOverflow, false);
+
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, 'recovered', 0, 100), 0);
+	assert.equal(persistence.pendingCount(), 1);
+});
+
+test('P1-1D: rejected entries during overflow do not silently corrupt state', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	for (let run = 0; run < 15; run++) {
+		persistence.beginRun('session-1');
+		for (let i = 0; i < 10; i++) {
+			persistence.receiveSegment(createFinalSegment(i, `text-${run}-${i}`, i * 100, (i + 1) * 100), 0);
+		}
+		persistence.endRun();
+	}
+
+	const countBefore = persistence.pendingCount();
+
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, 'should-be-rejected', 0, 100), 0);
+	persistence.endRun();
+
+	assert.equal(persistence.pendingCount(), countBefore);
+	assert.equal(persistence.pendingOverflow, true);
 });
