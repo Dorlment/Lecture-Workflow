@@ -194,6 +194,118 @@ test('multiple finals are formatted correctly', () => {
 	assert.ok(result.includes('[00:00:45] 第三句'));
 });
 
+test('writer does not write empty timestamp line', () => {
+	const markdown = `## 原始文字稿
+
+## AI 整理结果
+`;
+
+	const entry = createEntry({ classroomOffsetMs: 22000, text: '' });
+	const result = appendFinalsToTranscript(markdown, [entry]);
+
+	assert.ok(!result.match(/\[00:00:22\]\s*$/m));
+	assert.ok(result.includes('## 原始文字稿'));
+});
+
+test('existing empty timestamps are cleaned from transcript section', () => {
+	const markdown = `## 原始文字稿
+
+[00:00:10] A
+[00:00:22]
+[00:00:54] B
+
+## AI 整理结果
+`;
+
+	const result = appendFinalsToTranscript(markdown, []);
+
+	assert.ok(!result.match(/^\[00:00:22\]\s*$/m));
+	assert.ok(result.includes('[00:00:10] A'));
+	assert.ok(result.includes('[00:00:54] B'));
+});
+
+test('valid time gaps are preserved, not compressed', () => {
+	const markdown = `## 原始文字稿
+
+[00:01:20] A
+[00:02:05] B
+
+## AI 整理结果
+`;
+
+	const result = appendFinalsToTranscript(markdown, []);
+
+	assert.ok(result.includes('[00:01:20] A'));
+	assert.ok(result.includes('[00:02:05] B'));
+	const idxA = result.indexOf('[00:01:20]');
+	const idxB = result.indexOf('[00:02:05]');
+	assert.ok(idxA < idxB);
+});
+
+test('only transcript section is cleaned, other sections untouched', () => {
+	const markdown = `## 其他 section
+
+[00:00:22]
+
+## 原始文字稿
+
+[00:00:10] A
+[00:00:22]
+[00:00:54] B
+
+## AI 整理结果
+`;
+
+	const result = appendFinalsToTranscript(markdown, []);
+
+	const otherSectionStart = result.indexOf('## 其他 section');
+	const transcriptStart = result.indexOf('## 原始文字稿');
+	const otherSection = result.slice(otherSectionStart, transcriptStart);
+	assert.ok(otherSection.includes('[00:00:22]'));
+
+	const transcriptSection = result.slice(transcriptStart);
+	assert.ok(!transcriptSection.match(/^\[00:00:22\]\s*$/m));
+});
+
+test('malformed timestamp-like lines are not cleaned', () => {
+	const markdown = `## 原始文字稿
+
+[12]
+[1:2]
+[::]
+[1234]
+[00:00:22] hello
+普通用户文本
+[00:00:10] A
+[00:00:22]
+[00:00:54] B
+
+## AI 整理结果
+`;
+
+	const result = appendFinalsToTranscript(markdown, []);
+
+	assert.ok(result.includes('[12]'));
+	assert.ok(result.includes('[1:2]'));
+	assert.ok(result.includes('[::]'));
+	assert.ok(result.includes('[1234]'));
+	assert.ok(result.includes('[00:00:22] hello'));
+	assert.ok(result.includes('普通用户文本'));
+	assert.ok(result.includes('[00:00:10] A'));
+	assert.ok(result.includes('[00:00:54] B'));
+	assert.ok(!result.match(/^\[00:00:22\]\s*$/m));
+});
+
+test('empty HH:MM:SS with trailing whitespace is cleaned', () => {
+	const markdown = `## 原始文字稿\n\n[12:34:56]${'   '}\n[01:02:03]\t\n[00:00:10] A\n\n## AI 整理结果\n`;
+
+	const result = appendFinalsToTranscript(markdown, []);
+
+	assert.ok(!result.match(/^\[12:34:56\]\s*$/m));
+	assert.ok(!result.match(/^\[01:02:03\]\s*$/m));
+	assert.ok(result.includes('[00:00:10] A'));
+});
+
 test('formatClassroomOffset handles large offsets', () => {
 	const markdown = `## 原始文字稿
 

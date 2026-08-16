@@ -86,6 +86,7 @@ import { createRuntimeNodeModuleLoader } from './runtime-node-loader';
 import { createObsidianCompanionPluginDirectoryProvider } from './obsidian-companion-plugin-directory';
 import { runtimeErrorMessage } from './audio-companion-runtime-ui';
 import { RealtimeAsrSessionController } from './realtime-asr-session-controller';
+import { RealtimeAsrTranscriptSessionManager } from './realtime-asr-transcript-session-manager';
 import { RealtimeAsrTransportAbDiagnostic } from './realtime-asr-transport-ab-diagnostic';
 import { RealtimeAsrTransportAbModal } from './realtime-asr-transport-ab-modal';
 import { createNodeRealtimeAsrTransport } from './realtime-asr-websocket';
@@ -130,6 +131,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 	private audioCompanionSessionController: AudioCompanionSessionController | null = null;
 	private audioFrameConsumer: AudioFrameConsumer | null = null;
 	private realtimeAsrSessionController: RealtimeAsrSessionController | null = null;
+	private transcriptSessionManager: RealtimeAsrTranscriptSessionManager | null = null;
 	private realtimeAsrTransportAbModal: RealtimeAsrTransportAbModal | null = null;
 	private classroomWorkbenchOpener: ClassroomWorkbenchOpener<WorkspaceLeaf> | null = null;
 	private screenshotBackgroundService: ObsidianBackgroundScreenshotService | null = null;
@@ -188,6 +190,13 @@ export default class LectureWorkflowPlugin extends Plugin {
 					callbacks: providerOptions.callbacks,
 				}),
 		});
+		this.transcriptSessionManager = new RealtimeAsrTranscriptSessionManager({
+			app: this.app,
+			subscribeToAsrState: (listener) => this.realtimeAsrSessionController!.subscribe(listener),
+			resolveTargetFile: () => this.resolveTranscriptTargetFile(),
+		});
+		this.transcriptSessionManager.start();
+		this.register(this.transcriptSessionManager.dispose.bind(this.transcriptSessionManager));
 		this.registerClassroomWorkbenchView();
 		this.classroomWorkbenchOpener = new ClassroomWorkbenchOpener(
 			this.app.workspace,
@@ -234,6 +243,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 	onunload(): void {
 		this.realtimeAsrTransportAbModal?.close();
 		this.realtimeAsrTransportAbModal = null;
+		this.transcriptSessionManager = null;
 		this.classroomWorkbenchOpener = null;
 		this.progressNotices.dispose();
 		this.realtimeAsrSessionController?.dispose();
@@ -597,6 +607,14 @@ export default class LectureWorkflowPlugin extends Plugin {
 			sessionId: state.sessionId,
 			startedAtUnixMs: state.startedAt.getTime(),
 		};
+	}
+
+	private resolveTranscriptTargetFile(): TFile | null {
+		const state = this.classroomSessionController?.getState();
+		if (state?.status !== 'listening' || !state.targetPath) return null;
+		const file = this.app.vault.getAbstractFileByPath(state.targetPath);
+		if (file instanceof TFile) return file;
+		return null;
 	}
 
 	private initializeScreenshotBackgroundSession(): void {

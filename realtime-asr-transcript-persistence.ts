@@ -1,7 +1,9 @@
 import type { RealtimeAsrSegment } from './realtime-asr-types';
 
 /**
- * Bailian begin_time reference semantics require integration validation before Vault wiring.
+ * Bailian begin_time reference semantics: CONFIRMED via real A/B (2026-08-15).
+ * begin_time is relative to the current ASR task's received audio stream start.
+ * Formula: classroomOffsetMs = audioBaseOffsetMs + beginTimeMs.
  */
 export function computeClassroomOffsetMs(
 	audioBaseOffsetMs: number | null,
@@ -94,6 +96,7 @@ export class RealtimeAsrTranscriptPersistence {
 		if (this.currentRunId === null || this.currentClassroomSessionId === null) return;
 		if (this.seenSentenceIds.has(segment.sentenceId)) return;
 		if (this.buffer.length >= MAX_PENDING_TRANSCRIPT_ENTRIES) return;
+		if (!segment.text.trim()) return;
 
 		const classroomOffsetMs = computeClassroomOffsetMs(audioBaseOffsetMs, segment.beginTimeMs);
 		const classroomEndOffsetMs = computeClassroomOffsetMs(audioBaseOffsetMs, segment.endTimeMs);

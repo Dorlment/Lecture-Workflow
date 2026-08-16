@@ -361,6 +361,47 @@ test('P1-1C: recovery after overflow via flush', () => {
 	assert.equal(persistence.pendingCount(), 1);
 });
 
+test('empty text final is not persisted', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '', 0, 100), 0);
+
+	assert.equal(persistence.pendingCount(), 0);
+	assert.equal(persistence.shouldFlush(), false);
+});
+
+test('whitespace-only text final is not persisted', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '   ', 0, 100), 0);
+
+	assert.equal(persistence.pendingCount(), 0);
+});
+
+test('newline/tab-only text final is not persisted', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '\n\t', 0, 100), 0);
+
+	assert.equal(persistence.pendingCount(), 0);
+});
+
+test('normal text final enters persistence normally', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '有效文本', 0, 100), 0);
+
+	assert.equal(persistence.pendingCount(), 1);
+});
+
 test('P1-1D: rejected entries during overflow do not silently corrupt state', () => {
 	const scheduler = createFakeScheduler();
 	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
@@ -381,4 +422,101 @@ test('P1-1D: rejected entries during overflow do not silently corrupt state', ()
 
 	assert.equal(persistence.pendingCount(), countBefore);
 	assert.equal(persistence.pendingOverflow, true);
+});
+
+test('STOP/START Case 1: Run 1 audioBaseOffsetMs=100000 beginTimeMs=5000 => classroomOffset 105000', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '第一段', 5000, 6000), 100000);
+
+	const batch = persistence.prepareFlush();
+	assert.ok(batch);
+	assert.equal(batch.entries.length, 1);
+	assert.equal(batch.entries[0].classroomOffsetMs, 105000);
+});
+
+test('STOP/START Case 2: Run 2 audioBaseOffsetMs=180000 beginTimeMs=7000 => classroomOffset 187000 not 7000', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	// Run 1
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '第一段', 5000, 6000), 100000);
+	persistence.endRun();
+	const batch1 = persistence.prepareFlush();
+	assert.ok(batch1);
+	persistence.commitFlush(batch1.token);
+
+	// Run 2 after STOP → START
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '第二段', 7000, 8000), 180000);
+
+	const batch2 = persistence.prepareFlush();
+	assert.ok(batch2);
+	assert.equal(batch2.entries.length, 1);
+	assert.equal(batch2.entries[0].classroomOffsetMs, 187000);
+	assert.equal(batch2.entries[0].classroomEndOffsetMs, 188000);
+});
+
+test('STOP/START Case 3: three consecutive runs produce monotonically increasing offsets', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	const offsets = [100000, 180000, 300000];
+	const beginTimes = [5000, 7000, 3000];
+	const allEntries = [];
+
+	for (let run = 0; run < 3; run++) {
+		persistence.beginRun('session-1');
+		persistence.receiveSegment(
+			createFinalSegment(1, `run-${run}`, beginTimes[run], beginTimes[run] + 1000),
+			offsets[run],
+		);
+		persistence.endRun();
+		const batch = persistence.prepareFlush();
+		assert.ok(batch);
+		allEntries.push(...batch.entries);
+		persistence.commitFlush(batch.token);
+	}
+
+	assert.equal(allEntries.length, 3);
+	assert.equal(allEntries[0].classroomOffsetMs, 105000);
+	assert.equal(allEntries[1].classroomOffsetMs, 187000);
+	assert.equal(allEntries[2].classroomOffsetMs, 303000);
+
+	// Monotonically increasing
+	assert.ok(allEntries[0].classroomOffsetMs < allEntries[1].classroomOffsetMs);
+	assert.ok(allEntries[1].classroomOffsetMs < allEntries[2].classroomOffsetMs);
+});
+
+test('STOP/START Case 4: empty final filtering still works across runs', () => {
+	const scheduler = createFakeScheduler();
+	const persistence = new RealtimeAsrTranscriptPersistence({ scheduler, idFactory: createDeterministicIdFactory() });
+
+	// Run 1 with empty final
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '', 5000, 6000), 100000);
+	persistence.receiveSegment(createFinalSegment(2, '   ', 7000, 8000), 100000);
+	persistence.receiveSegment(createFinalSegment(3, '有效文本', 9000, 10000), 100000);
+	assert.equal(persistence.pendingCount(), 1);
+	persistence.endRun();
+	const batch1 = persistence.prepareFlush();
+	assert.ok(batch1);
+	assert.equal(batch1.entries.length, 1);
+	assert.equal(batch1.entries[0].text, '有效文本');
+	persistence.commitFlush(batch1.token);
+
+	// Run 2 with empty final
+	persistence.beginRun('session-1');
+	persistence.receiveSegment(createFinalSegment(1, '\n\t', 3000, 4000), 180000);
+	persistence.receiveSegment(createFinalSegment(2, '第二段有效', 5000, 6000), 180000);
+	assert.equal(persistence.pendingCount(), 1);
+	persistence.endRun();
+	const batch2 = persistence.prepareFlush();
+	assert.ok(batch2);
+	assert.equal(batch2.entries.length, 1);
+	assert.equal(batch2.entries[0].text, '第二段有效');
+	assert.equal(batch2.entries[0].classroomOffsetMs, 185000);
 });
