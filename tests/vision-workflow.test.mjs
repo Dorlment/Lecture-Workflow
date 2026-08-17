@@ -33,6 +33,7 @@ const workflow = await bundleEntry([
 ].join('\n'));
 
 const {
+	VISION_EVIDENCE_SYSTEM_PROMPT,
 	VISION_SYSTEM_PROMPT,
 	applyStructuredResult,
 	buildVisionRetryOptions,
@@ -121,6 +122,28 @@ ${placeholders.map((id) => `{{IMAGE:${id}}}`).join('\n\n')}
 - 结论三`;
 }
 
+test('visual evidence from Qwen is passed to DeepSeek for final generation', async () => {
+	const evidence = '图片中清晰可见 DeepSeek Harness';
+	const vision = new MockVisionProvider([response(evidence)]);
+	const repair = new MockRepairProvider([response(validVisualMarkdown())]);
+	try {
+		const outcome = await generateVisionStructuredMarkdown(vision, repair, 'ASR: DeepSeek Hannes', [resolvedImage()]);
+		console.log('outcome.isComplete:', outcome.isComplete);
+		console.log('vision.requests.length:', vision.requests.length);
+		console.log('repair.requests.length:', repair.requests.length);
+	} catch (error) {
+		console.log('error:', error);
+	}
+	assert.equal(vision.requests[0].systemPrompt, VISION_EVIDENCE_SYSTEM_PROMPT);
+	assert.equal(vision.requests[0].images.length, 1);
+	assert.equal(repair.requests.length, 1);
+	assert.equal(repair.requests[0].systemPrompt, VISION_SYSTEM_PROMPT);
+	assert.match(repair.requests[0].userPrompt, /视觉证据/);
+	assert.match(repair.requests[0].userPrompt, new RegExp(evidence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+	assert.match(repair.requests[0].userPrompt, /ASR: DeepSeek Hannes/);
+	assert.match(repair.requests[0].userPrompt, /技术术语、产品名、英文专有名词/);
+});
+
 test('visual route preserves text-only behavior when no images exist', () => {
 	assert.equal(decideVisionWorkflowRoute(0, true), 'text-only');
 	assert.equal(decideVisionWorkflowRoute(0, false), 'text-only');
@@ -139,8 +162,8 @@ test('a cancelled wait rejects late visual responses before preview', () => {
 });
 
 test('visual Prompt inherits Takeaways and strict image placeholder rules', async () => {
-	const vision = new MockVisionProvider([response(validVisualMarkdown())]);
-	const repair = new MockRepairProvider();
+	const vision = new MockVisionProvider([response('视觉证据文本')]);
+	const repair = new MockRepairProvider([response(validVisualMarkdown())]);
 	await generateVisionStructuredMarkdown(vision, repair, '原始文字稿', [resolvedImage()]);
 	assert.match(VISION_SYSTEM_PROMPT, /删除口水话/);
 	assert.match(VISION_SYSTEM_PROMPT, /核心 Takeaways/);
@@ -153,8 +176,8 @@ test('visual Prompt inherits Takeaways and strict image placeholder rules', asyn
 test('valid placeholders are restored to exact original references before preview', async () => {
 	const image = resolvedImage();
 	const outcome = await generateVisionStructuredMarkdown(
-		new MockVisionProvider([response(validVisualMarkdown())]),
-		new MockRepairProvider(),
+		new MockVisionProvider([response('视觉证据文本')]),
+		new MockRepairProvider([response(validVisualMarkdown())]),
 		'原稿',
 		[image],
 	);
@@ -167,8 +190,8 @@ test('valid placeholders are restored to exact original references before previe
 
 test('outer Markdown fences are removed before visual validation', async () => {
 	const outcome = await generateVisionStructuredMarkdown(
-		new MockVisionProvider([response(`\`\`\`markdown\n${validVisualMarkdown()}\n\`\`\``)]),
-		new MockRepairProvider(),
+		new MockVisionProvider([response('视觉证据文本')]),
+		new MockRepairProvider([response(`\`\`\`markdown\n${validVisualMarkdown()}\n\`\`\``)]),
 		'原稿',
 		[resolvedImage()],
 	);
@@ -178,16 +201,16 @@ test('outer Markdown fences are removed before visual validation', async () => {
 
 test('missing legal images are appended deterministically without a repair request', async () => {
 	const images = [resolvedImage('IMG_001'), resolvedImage('IMG_002')];
-	const repair = new MockRepairProvider();
+	const repair = new MockRepairProvider([response(validVisualMarkdown(['IMG_001']))]);
 	const outcome = await generateVisionStructuredMarkdown(
-		new MockVisionProvider([response(validVisualMarkdown(['IMG_001']))]),
+		new MockVisionProvider([response('视觉证据文本')]),
 		repair,
 		'原稿',
 		images,
 	);
 	assert.equal(outcome.isComplete, true);
 	assert.equal(outcome.attempts, 1);
-	assert.equal(repair.requests.length, 0);
+	assert.equal(repair.requests.length, 1);
 	assert.match(outcome.markdown, /## 相关课堂图片/);
 	for (const image of images) {
 		assert.equal(outcome.markdown.split(image.originalReference).length - 1, 1);
@@ -203,8 +226,8 @@ for (const [name, invalidMarkdown] of [
 	['direct Markdown embed', validVisualMarkdown().replace('{{IMAGE:IMG_001}}', '![编造](编造.png)')],
 ]) {
 	test(`${name} triggers exactly one text-only format repair`, async () => {
-		const repair = new MockRepairProvider([response(validVisualMarkdown())]);
-		const vision = new MockVisionProvider([response(invalidMarkdown)]);
+		const repair = new MockRepairProvider([response(invalidMarkdown), response(validVisualMarkdown())]);
+		const vision = new MockVisionProvider([response('视觉证据文本')]);
 		const outcome = await generateVisionStructuredMarkdown(
 			vision,
 			repair,
@@ -214,34 +237,34 @@ for (const [name, invalidMarkdown] of [
 		assert.equal(outcome.isComplete, true);
 		assert.equal(outcome.attempts, 2);
 		assert.equal(vision.requests.length, 1);
-		assert.equal(repair.requests.length, 1);
+		assert.equal(repair.requests.length, 2);
 		assert.equal('images' in repair.requests[0], false);
 	});
 }
 
 test('a missing or invalid Takeaways section triggers one repair', async () => {
 	const invalid = validVisualMarkdown().replace('## 💡 核心 Takeaways（3分钟速记）', '## 总结');
-	const repair = new MockRepairProvider([response(validVisualMarkdown())]);
+	const repair = new MockRepairProvider([response(invalid), response(validVisualMarkdown())]);
 	const outcome = await generateVisionStructuredMarkdown(
-		new MockVisionProvider([response(invalid)]),
+		new MockVisionProvider([response('视觉证据文本')]),
 		repair,
 		'原稿',
 		[resolvedImage()],
 	);
 	assert.equal(outcome.isComplete, true);
-	assert.equal(repair.requests.length, 1);
+	assert.equal(repair.requests.length, 2);
 });
 
 test('visual repair requests contain summaries but never image data or API secrets', async () => {
 	const invalid = validVisualMarkdown(['IMG_999']);
-	const repair = new MockRepairProvider([response(validVisualMarkdown())]);
+	const repair = new MockRepairProvider([response(`${invalid}\n\ndata:image/png;base64,SECRETBYTES`), response(validVisualMarkdown())]);
 	await generateVisionStructuredMarkdown(
-		new MockVisionProvider([response(`${invalid}\n\ndata:image/png;base64,SECRETBYTES`)]),
+		new MockVisionProvider([response('视觉证据文本')]),
 		repair,
 		'原稿',
 		[resolvedImage('IMG_001', { nearbyContext: '附近 data:image/png;base64,CONTEXTDATA' })],
 	);
-	const repairBody = JSON.stringify(repair.requests[0]);
+	const repairBody = JSON.stringify(repair.requests[1]);
 	assert.match(repairBody, /IMG_001/);
 	assert.match(repairBody, /附近/);
 	assert.equal(repairBody.includes('data:image'), false);
@@ -250,24 +273,24 @@ test('visual repair requests contain summaries but never image data or API secre
 });
 
 test('a second invalid result stops after one repair and remains non-writable', async () => {
-	const repair = new MockRepairProvider([response('# 仍然不完整')]);
+	const repair = new MockRepairProvider([response('# 第一次不完整'), response('# 仍然不完整')]);
 	const outcome = await generateVisionStructuredMarkdown(
-		new MockVisionProvider([response('# 第一次不完整')]),
+		new MockVisionProvider([response('视觉证据文本')]),
 		repair,
 		'原稿',
 		[resolvedImage()],
 	);
 	assert.equal(outcome.isComplete, false);
 	assert.equal(outcome.attempts, 2);
-	assert.equal(repair.requests.length, 1);
+	assert.equal(repair.requests.length, 2);
 	assert.match(outcome.incompleteReason, /仍不完整/);
 });
 
 test('a failed repair request preserves the first result without leaking its error', async () => {
 	const firstResult = '# 首次不完整\n\n可供用户复制的内容';
-	const repair = new MockRepairProvider([new Error('sk-secret transcript body')]);
+	const repair = new MockRepairProvider([response(firstResult), new Error('sk-secret transcript body')]);
 	const outcome = await generateVisionStructuredMarkdown(
-		new MockVisionProvider([response(firstResult)]),
+		new MockVisionProvider([response('视觉证据文本')]),
 		repair,
 		'原稿',
 		[resolvedImage()],
@@ -277,21 +300,21 @@ test('a failed repair request preserves the first result without leaking its err
 	assert.equal(outcome.markdown, firstResult);
 	assert.match(outcome.incompleteReason, /已保留首次结果/);
 	assert.equal(outcome.incompleteReason.includes('sk-secret'), false);
-	assert.equal(repair.requests.length, 1);
+	assert.equal(repair.requests.length, 2);
 });
 
 test('length and other incomplete finish reasons block writing without repair loops', async () => {
 	for (const finishReason of ['length', 'content_filter']) {
-		const repair = new MockRepairProvider([response(validVisualMarkdown())]);
+		const repair = new MockRepairProvider([response(validVisualMarkdown(), finishReason)]);
 		const outcome = await generateVisionStructuredMarkdown(
-			new MockVisionProvider([response(validVisualMarkdown(), finishReason)]),
+			new MockVisionProvider([response('视觉证据文本')]),
 			repair,
 			'原稿',
 			[resolvedImage()],
 		);
 		assert.equal(outcome.isComplete, false);
 		assert.equal(outcome.attempts, 1);
-		assert.equal(repair.requests.length, 0);
+		assert.equal(repair.requests.length, 1);
 	}
 });
 
@@ -412,11 +435,12 @@ function createServiceHarness({ withImage = true, imageBytes = pngBytes(0x0a) } 
 	};
 	const workspace = { getActiveFile: () => note };
 	const app = { vault, metadataCache, workspace };
-	const visionProvider = new MockVisionProvider([response(validVisualMarkdown())]);
-	const textProvider = new MockRepairProvider([response(completeTextMarkdown())]);
+	const visionProvider = new MockVisionProvider([response('视觉证据文本')]);
+	const textProvider = new MockRepairProvider([response(validVisualMarkdown())]);
 	const registry = {
 		getActiveTextProviderId: () => 'deepseek',
 		getTextProvider: () => textProvider,
+		getActiveTextProvider: () => textProvider,
 		getVisionProviderForConfirmedRetry: () => visionProvider,
 	};
 	return {
@@ -555,7 +579,8 @@ test('attachment deletion, modification, or latest read failure blocks requests 
 
 test('an incomplete visual finish reason produces a copyable preview that cannot be written', async () => {
 	const harness = createServiceHarness();
-	harness.visionProvider.responses = [response(validVisualMarkdown(), 'length')];
+	harness.visionProvider.responses = [response('视觉证据文本')];
+	harness.textProvider.responses = [response(validVisualMarkdown(), 'length')];
 	const snapshot = await harness.service.prepare(harness.note);
 	const prepared = await harness.service.prepareVision(snapshot, 10);
 	const preview = await harness.service.generateVision(prepared, 'qwen');

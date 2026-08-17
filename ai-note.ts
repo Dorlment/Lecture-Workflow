@@ -134,8 +134,12 @@ export function applyStructuredResult(content: string, generatedMarkdown: string
 	return updated;
 }
 
-export function buildStructureUserPrompt(transcript: string): string {
-	return `请整理以下课堂原始文字稿。不得遗漏重要事实，也不得添加文字稿中不存在的信息。\n\n${transcript}`;
+export function buildStructureUserPrompt(transcript: string, timelineContext?: string | null): string {
+	const base = `请整理以下课堂原始文字稿。不得遗漏重要事实，也不得添加文字稿中不存在的信息。\n\n${transcript}`;
+	if (timelineContext) {
+		return `${base}\n\n${timelineContext}`;
+	}
+	return base;
 }
 
 function replaceOrInsertAiRegion(content: string, region: string): string {
