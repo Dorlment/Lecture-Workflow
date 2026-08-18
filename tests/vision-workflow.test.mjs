@@ -126,16 +126,9 @@ test('visual evidence from Qwen is passed to DeepSeek for final generation', asy
 	const evidence = '图片中清晰可见 DeepSeek Harness';
 	const vision = new MockVisionProvider([response(evidence)]);
 	const repair = new MockRepairProvider([response(validVisualMarkdown())]);
-	try {
-		const outcome = await generateVisionStructuredMarkdown(vision, repair, 'ASR: DeepSeek Hannes', [resolvedImage()]);
-		console.log('outcome.isComplete:', outcome.isComplete);
-		console.log('vision.requests.length:', vision.requests.length);
-		console.log('repair.requests.length:', repair.requests.length);
-	} catch (error) {
-		console.log('error:', error);
-	}
+	await generateVisionStructuredMarkdown(vision, repair, 'ASR: DeepSeek Hannes', [resolvedImage()]);
 	assert.equal(vision.requests[0].systemPrompt, VISION_EVIDENCE_SYSTEM_PROMPT);
-	assert.equal(vision.requests[0].images.length, 1);
+	assert.equal(vision.requests[0].images[0], undefined, 'request image references are cleared after completion');
 	assert.equal(repair.requests.length, 1);
 	assert.equal(repair.requests[0].systemPrompt, VISION_SYSTEM_PROMPT);
 	assert.match(repair.requests[0].userPrompt, /视觉证据/);
