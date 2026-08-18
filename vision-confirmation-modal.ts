@@ -36,7 +36,7 @@ export class VisionConfirmationModal extends Modal {
 		});
 		if (this.summary.textProviderId === 'deepseek' && this.summary.visionProviderId === 'qwen') {
 			this.contentEl.createEl('p', {
-				text: '当前笔记包含图片，本次将由 Qwen-VL 同时处理文字稿和图片。',
+				text: '课堂图片将由 Qwen-VL 进行视觉理解，视觉结果将作为辅助上下文提供给文本模型；完整文字稿由文本模型负责最终结构化整理。',
 				cls: 'lecture-workflow-ai-replace-warning',
 			});
 		}

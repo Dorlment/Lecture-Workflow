@@ -8,9 +8,11 @@ import {
 	assertAiOutputWritable,
 	generateStructuredMarkdown,
 } from './ai-generation';
+import { buildTimelineContext } from './classroom-timeline-read-model';
 import {
 	collectVisionImages,
 	verifyVisionAttachmentSnapshots,
+	type VisionFileHandle,
 } from './image-attachments';
 import { parseVisionImageReferences } from './image-references';
 import { ObsidianVisionAttachmentHost } from './obsidian-vision-attachment-host';
@@ -23,10 +25,16 @@ import {
 } from './note-conflict';
 import { generateVisionStructuredMarkdown } from './vision-generation';
 import type {
+	ParsedVisionImageReference,
 	ResolvedVisionImage,
 	VisionAttachmentSnapshot,
 	VisionImageReference,
 } from './vision-types';
+import {
+	extractScreenshotOffsets,
+	mapImagesToTimeline,
+	selectImagesByTimeline,
+} from './vision-image-selector';
 
 export interface AiGenerationSnapshot {
 	filePath: string;
@@ -114,11 +122,38 @@ export class AiWorkflowService {
 			throw new Error('目标笔记已不存在，已中止图片读取。');
 		}
 		const host = new ObsidianVisionAttachmentHost(this.app.metadataCache, this.app.vault);
+
+		// Create selection function for time-based image selection
+		const selectImages = <TImageFile>(
+			resolved: Array<{ reference: ParsedVisionImageReference; handle: VisionFileHandle<TImageFile> }>,
+		): Array<{ reference: ParsedVisionImageReference; handle: VisionFileHandle<TImageFile> }> => {
+			// Extract screenshot offsets from timeline
+			const timelineOffsets = extractScreenshotOffsets(snapshot.originalContent);
+
+			// Map resolved images to their timeline offsets
+			const imagePaths = resolved.map((img) => img.handle.vaultPath);
+			const imagesWithOffsets = mapImagesToTimeline(imagePaths, timelineOffsets);
+
+			// Select up to maxImages using time-based strategy
+			const selection = selectImagesByTimeline(imagesWithOffsets, maxImages);
+
+			// Return selected images in their original order, skipping any unexpected undefined entries
+			const selected: Array<{ reference: ParsedVisionImageReference; handle: VisionFileHandle<TImageFile> }> = [];
+			for (const item of selection.selected) {
+				const resolvedItem = resolved[item.originalIndex];
+				if (resolvedItem) {
+					selected.push(resolvedItem);
+				}
+			}
+			return selected;
+		};
+
 		const collected = await collectVisionImages({
 			noteFile: target,
 			notePath: snapshot.filePath,
 			markdownSnapshot: snapshot.originalContent,
 			maxImages,
+			selectImages,
 		}, host);
 		if (collected.images.length === 0) {
 			throw new Error('没有找到可发送的本地课堂图片。');
@@ -137,7 +172,8 @@ export class AiWorkflowService {
 	): Promise<AiPreviewData> {
 		await this.assertSnapshotCurrent(snapshot);
 		const provider = this.providerRegistry.getTextProvider(providerId);
-		const outcome = await generateStructuredMarkdown(provider, snapshot.transcript);
+		const timelineContext = buildTimelineContext(snapshot.originalContent);
+		const outcome = await generateStructuredMarkdown(provider, snapshot.transcript, timelineContext);
 		return {
 			filePath: snapshot.filePath,
 			generatedMarkdown: outcome.markdown,
@@ -165,13 +201,15 @@ export class AiWorkflowService {
 			await this.assertSnapshotCurrent(snapshot);
 			await this.assertAttachmentsCurrent(snapshot.attachmentSnapshots, 'request');
 			const provider = this.providerRegistry.getVisionProviderForConfirmedRetry(providerId);
-			const repairProvider = this.providerRegistry.getTextProvider(providerId);
+			const repairProvider = this.providerRegistry.getActiveTextProvider();
+			const timelineContext = buildTimelineContext(snapshot.originalContent);
 			const outcome = await generateVisionStructuredMarkdown(
 				provider,
 				repairProvider,
 				snapshot.transcript,
 				snapshot.resolvedImages,
 				signal,
+				timelineContext,
 			);
 			return {
 				filePath: snapshot.filePath,

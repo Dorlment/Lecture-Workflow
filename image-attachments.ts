@@ -44,6 +44,12 @@ export interface CollectVisionImagesOptions<TNoteFile> {
 	notePath: string;
 	markdownSnapshot: string;
 	maxImages: number;
+	/**
+	 * Optional selection function to reduce image count before validation.
+	 * Receives resolved image entries and returns selected subset.
+	 * If not provided, all images are validated (and may fail if > maxImages).
+	 */
+	selectImages?: <TImageFile>(resolved: Array<{ reference: ParsedVisionImageReference; handle: VisionFileHandle<TImageFile> }>) => Array<{ reference: ParsedVisionImageReference; handle: VisionFileHandle<TImageFile> }>;
 }
 
 export interface CollectedVisionImages {
@@ -87,13 +93,19 @@ export async function collectVisionImages<TNoteFile, TImageFile>(
 		host.getCachedEmbeds(options.noteFile),
 	);
 	const issues: VisionAttachmentIssue[] = [];
-	const resolved = resolveAndDeduplicateReferences(
+	let resolved = resolveAndDeduplicateReferences(
 		selected.references,
 		options.notePath,
 		host,
 		issues,
 	);
 	const maxImages = normalizeVisionImageCount(options.maxImages);
+
+	// Apply selection if provided (before validation)
+	if (options.selectImages && resolved.length > maxImages) {
+		resolved = options.selectImages(resolved);
+	}
+
 	if (resolved.length > maxImages) {
 		for (const entry of resolved.slice(maxImages)) {
 			issues.push({

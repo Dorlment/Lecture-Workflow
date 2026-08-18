@@ -1022,7 +1022,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 		);
 		try {
 			const provider = registry.getVisionProviderForConfirmedRetry(providerId);
-			progress.update(`正在使用 ${provider.displayName} 同时整理文字稿和课堂图片…`);
+			progress.update(`正在使用 ${provider.displayName} 进行视觉理解，随后由文本模型完成结构化整理…`);
 			const preview = await this.aiWorkflowGate.completeWithPreview(
 				() => service.generateVision(prepared, providerId, controller.signal),
 			);

@@ -24,6 +24,9 @@ export const VISION_SYSTEM_PROMPT = `${STRUCTURE_SYSTEM_PROMPT}
 export const VISION_REPAIR_SYSTEM_PROMPT = `你是课堂笔记 Markdown 格式修复助手。只返回修复后的完整 Markdown 正文，不要返回代码围栏或解释。
 忠实保留上一次输出的信息，不扩写、不编造。必须修复 Takeaways 和图片占位符格式；不得输出 Base64、Data URL、附件路径、Wiki 图片语法或 Markdown 图片语法。`;
 
+export const VISION_EVIDENCE_SYSTEM_PROMPT = `你是课堂图片视觉分析助手。请只根据图片内容输出简洁、可验证的视觉事实，不要生成 Markdown 笔记，不要猜测，不要输出 Base64、Data URL 或附件路径。
+对于每张图片，用 1-2 句话描述图片中清晰可见的文字、图表结构或关键信息。如果图片内容无法确认，说明“无法确认”。`;
+
 export interface VisionGenerationOutcome {
 	markdown: string;
 	isComplete: boolean;
@@ -49,6 +52,7 @@ export async function generateVisionStructuredMarkdown(
 	transcript: string,
 	images: ResolvedVisionImage[],
 	signal?: AbortSignal,
+	timelineContext?: string | null,
 ): Promise<VisionGenerationOutcome> {
 	const imageInputs: VisionImageInput[] = images.map((image) => ({
 		id: image.id,
@@ -65,30 +69,42 @@ export async function generateVisionStructuredMarkdown(
 		originalReference: image.originalReference,
 	}));
 
-	let firstResult: ProviderResponse;
+	// Step 1: Vision provider extracts concise visual evidence from classroom images.
+	let evidenceResult: ProviderResponse;
 	try {
-		firstResult = await visionProvider.generateVision({
-			systemPrompt: VISION_SYSTEM_PROMPT,
-			textPrompt: buildVisionTextPrompt(transcript),
+		evidenceResult = await visionProvider.generateVision({
+			systemPrompt: VISION_EVIDENCE_SYSTEM_PROMPT,
+			textPrompt: buildVisionEvidencePrompt(images, timelineContext),
 			images: imageInputs,
-			maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
+			maxTokens: 2048,
 		}, signal);
 	} finally {
 		clearVisionImageInputs(imageInputs);
 	}
+	const visualEvidence = evidenceResult.content.trim();
+
+	// Step 2: Text provider generates the final structured Markdown using
+	// the full transcript, timeline context, and visual evidence.
+	const finalUserPrompt = buildVisionTextPrompt(transcript, timelineContext, visualEvidence);
+	const firstResult = await repairProvider.generate({
+		systemPrompt: VISION_SYSTEM_PROMPT,
+		userPrompt: finalUserPrompt,
+		maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
+	}, signal);
 	const firstValidation = validateVisionOutput(firstResult, references);
 	if (isIncompleteVisionFinishReason(firstResult.finishReason)) {
 		return incompleteOutcome(
 			firstValidation.markdown,
 			firstResult.finishReason,
 			1,
-			`视觉模型因 ${firstResult.finishReason ?? '未知原因'} 提前停止，结果可能不完整。`,
+			`文本整理模型因 ${firstResult.finishReason ?? '未知原因'} 提前停止，结果可能不完整。`,
 		);
 	}
 	if (firstValidation.isComplete) {
 		return completeOutcome(firstValidation.markdown, firstResult.finishReason, 1);
 	}
 
+	// Step 3: Text provider repairs format if needed.
 	let repairedResult: ProviderResponse;
 	try {
 		repairedResult = await repairProvider.generate({
@@ -128,13 +144,37 @@ export async function generateVisionStructuredMarkdown(
 	return completeOutcome(repairedValidation.markdown, repairedResult.finishReason, 2);
 }
 
-export function buildVisionTextPrompt(transcript: string): string {
-	return `请同时整理下面的课堂原始文字稿和随后按原始顺序提供的课堂图片。
-必须忠实于文字稿和图片，不得添加无法确认的信息。图片编号与附近文字会紧接在本段之后提供。
+export function buildVisionEvidencePrompt(
+	images: ResolvedVisionImage[],
+	timelineContext?: string | null,
+): string {
+	const imageList = images
+		.map((image) => `- ${image.id}：${sanitizeRepairText(image.nearbyContext)}`)
+		.join('\n');
+	return `请分析以下课堂图片，只输出图片中清晰可见的文字和关键视觉信息。
+
+${timelineContext ? `${timelineContext}\n\n` : ''}图片列表：
+${imageList}`;
+}
+
+export function buildVisionTextPrompt(
+	transcript: string,
+	timelineContext?: string | null,
+	visualEvidence?: string | null,
+): string {
+	const base = `请整理以下课堂原始文字稿，并结合视觉证据生成结构化笔记。不得遗漏重要事实，也不得添加文字稿和视觉证据中不存在的信息。
 
 课堂原始文字稿：
 
-${transcript}`;
+${transcript}
+
+${timelineContext ? `${timelineContext}\n\n` : ''}视觉证据：
+${visualEvidence ?? ''}
+
+当文字稿中的技术术语、产品名、英文专有名词与视觉证据中清晰可见的文字冲突时，优先采用视觉证据中明确可见的拼写。不要修改原始文字稿，不要对无视觉证据的内容进行猜测或自动纠错。
+
+图片占位符必须独立成行，使用 {{IMAGE:IMG_001}} 格式。同一图片最多出现一次。无法确定位置时可以遗漏，插件会把遗漏图片放入“## 相关课堂图片”。不得解释占位符协议。`;
+	return base;
 }
 
 export function buildVisionRepairPrompt(

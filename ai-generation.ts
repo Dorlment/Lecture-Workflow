@@ -26,10 +26,11 @@ interface StructureValidation {
 export async function generateStructuredMarkdown(
 	provider: TextProvider,
 	transcript: string,
+	timelineContext?: string | null,
 ): Promise<AiGenerationOutcome> {
 	const firstResult = await provider.generate({
 		systemPrompt: STRUCTURE_SYSTEM_PROMPT,
-		userPrompt: buildStructureUserPrompt(transcript),
+		userPrompt: buildStructureUserPrompt(transcript, timelineContext),
 		maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
 	});
 	const firstValidation = validateAndNormalizeStructure(firstResult);
