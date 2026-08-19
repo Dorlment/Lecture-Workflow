@@ -4,6 +4,8 @@ import {
 	buildStructureUserPrompt,
 	STRUCTURE_SYSTEM_PROMPT,
 } from './ai-note';
+import type { GenerationDiagnostics } from './generation-diagnostics';
+import { estimateInputTokens } from './generation-diagnostics';
 import type { TextGenerationResult, TextProvider } from './provider-types';
 
 export const STANDARD_TAKEAWAYS_HEADING = '## 💡 核心 Takeaways（3分钟速记）';
@@ -15,6 +17,7 @@ export interface AiGenerationOutcome {
 	incompleteReason: string | null;
 	attempts: number;
 	finishReason: string | null;
+	diagnostics?: GenerationDiagnostics;
 }
 
 interface StructureValidation {
@@ -28,20 +31,26 @@ export async function generateStructuredMarkdown(
 	transcript: string,
 	timelineContext?: string | null,
 ): Promise<AiGenerationOutcome> {
+	const startedAt = Date.now();
+	let textDurationMs = 0;
+	let callStartedAt = Date.now();
 	const firstResult = await provider.generate({
 		systemPrompt: STRUCTURE_SYSTEM_PROMPT,
 		userPrompt: buildStructureUserPrompt(transcript, timelineContext),
 		maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
 	});
+	textDurationMs += Date.now() - callStartedAt;
 	const firstValidation = validateAndNormalizeStructure(firstResult);
 	if (isLengthTruncation(firstResult.finishReason)) {
-		return incompleteOutcome(firstValidation.markdown, firstResult.finishReason, 1,
-			'模型因输出长度限制提前停止，结果可能被截断。');
+		return withDiagnostics(incompleteOutcome(firstValidation.markdown, firstResult.finishReason, 1,
+			'模型因输出长度限制提前停止，结果可能被截断。'), transcript, startedAt, textDurationMs);
 	}
 	if (firstValidation.isComplete) {
-		return completeOutcome(firstValidation.markdown, firstResult.finishReason, 1);
+		return withDiagnostics(completeOutcome(firstValidation.markdown, firstResult.finishReason, 1),
+			transcript, startedAt, textDurationMs);
 	}
 
+	callStartedAt = Date.now();
 	const repairedResult = await provider.generate({
 		systemPrompt: STRUCTURE_SYSTEM_PROMPT,
 		userPrompt: buildFormatRepairPrompt(
@@ -51,20 +60,22 @@ export async function generateStructuredMarkdown(
 		),
 		maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
 	});
+	textDurationMs += Date.now() - callStartedAt;
 	const repairedValidation = validateAndNormalizeStructure(repairedResult);
 	if (isLengthTruncation(repairedResult.finishReason)) {
-		return incompleteOutcome(repairedValidation.markdown, repairedResult.finishReason, 2,
-			'格式修复结果因输出长度限制提前停止，仍然不完整。');
+		return withDiagnostics(incompleteOutcome(repairedValidation.markdown, repairedResult.finishReason, 2,
+			'格式修复结果因输出长度限制提前停止，仍然不完整。'), transcript, startedAt, textDurationMs);
 	}
 	if (!repairedValidation.isComplete) {
-		return incompleteOutcome(
+		return withDiagnostics(incompleteOutcome(
 			repairedValidation.markdown,
 			repairedResult.finishReason,
 			2,
 			`自动格式修复后结果仍不完整：${repairedValidation.reason ?? '格式校验失败。'}`,
-		);
+		), transcript, startedAt, textDurationMs);
 	}
-	return completeOutcome(repairedValidation.markdown, repairedResult.finishReason, 2);
+	return withDiagnostics(completeOutcome(repairedValidation.markdown, repairedResult.finishReason, 2),
+		transcript, startedAt, textDurationMs);
 }
 
 export function validateAndNormalizeStructure(result: TextGenerationResult): StructureValidation {
@@ -159,6 +170,29 @@ ${transcript}
 上一次完整输出如下：
 
 ${markdown}`;
+}
+
+function withDiagnostics(
+	outcome: AiGenerationOutcome,
+	transcript: string,
+	startedAt: number,
+	textDurationMs: number,
+): AiGenerationOutcome {
+	return {
+		...outcome,
+		diagnostics: {
+			transcriptChars: transcript.length,
+			estimatedInputTokens: estimateInputTokens(transcript.length),
+			sourceImageCount: 0,
+			selectedImageCount: 0,
+			textDurationMs,
+			totalDurationMs: Date.now() - startedAt,
+			finishReason: outcome.finishReason,
+			attempts: outcome.attempts,
+			isComplete: outcome.isComplete,
+			incompleteReason: outcome.incompleteReason,
+		},
+	};
 }
 
 function completeOutcome(

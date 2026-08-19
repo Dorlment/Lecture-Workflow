@@ -6,6 +6,8 @@ import {
 	STRUCTURE_MAX_OUTPUT_TOKENS,
 	validateAndNormalizeStructure,
 } from './ai-generation';
+import type { GenerationDiagnostics } from './generation-diagnostics';
+import { estimateInputTokens } from './generation-diagnostics';
 import { validateAndRestoreImagePlaceholders } from './image-placeholders';
 import type {
 	ProviderResponse,
@@ -33,6 +35,7 @@ export interface VisionGenerationOutcome {
 	incompleteReason: string | null;
 	attempts: number;
 	finishReason: string | null;
+	diagnostics?: GenerationDiagnostics;
 }
 
 interface VisionOutputValidation {
@@ -53,7 +56,11 @@ export async function generateVisionStructuredMarkdown(
 	images: ResolvedVisionImage[],
 	signal?: AbortSignal,
 	timelineContext?: string | null,
+	sourceImageCount?: number,
 ): Promise<VisionGenerationOutcome> {
+	const startedAt = Date.now();
+	let visionDurationMs: number | undefined;
+	let textDurationMs = 0;
 	const imageInputs: VisionImageInput[] = images.map((image) => ({
 		id: image.id,
 		mimeType: image.mimeType,
@@ -71,6 +78,7 @@ export async function generateVisionStructuredMarkdown(
 
 	// Step 1: Vision provider extracts concise visual evidence from classroom images.
 	let evidenceResult: ProviderResponse;
+	const visionStartedAt = Date.now();
 	try {
 		evidenceResult = await visionProvider.generateVision({
 			systemPrompt: VISION_EVIDENCE_SYSTEM_PROMPT,
@@ -79,6 +87,7 @@ export async function generateVisionStructuredMarkdown(
 			maxTokens: 2048,
 		}, signal);
 	} finally {
+		visionDurationMs = Date.now() - visionStartedAt;
 		clearVisionImageInputs(imageInputs);
 	}
 	const visualEvidence = evidenceResult.content.trim();
@@ -86,26 +95,30 @@ export async function generateVisionStructuredMarkdown(
 	// Step 2: Text provider generates the final structured Markdown using
 	// the full transcript, timeline context, and visual evidence.
 	const finalUserPrompt = buildVisionTextPrompt(transcript, timelineContext, visualEvidence);
+	let textStartedAt = Date.now();
 	const firstResult = await repairProvider.generate({
 		systemPrompt: VISION_SYSTEM_PROMPT,
 		userPrompt: finalUserPrompt,
 		maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
 	}, signal);
+	textDurationMs += Date.now() - textStartedAt;
 	const firstValidation = validateVisionOutput(firstResult, references);
 	if (isIncompleteVisionFinishReason(firstResult.finishReason)) {
-		return incompleteOutcome(
+		return withDiagnostics(incompleteOutcome(
 			firstValidation.markdown,
 			firstResult.finishReason,
 			1,
 			`文本整理模型因 ${firstResult.finishReason ?? '未知原因'} 提前停止，结果可能不完整。`,
-		);
+		), transcript, images.length, sourceImageCount, startedAt, visionDurationMs, textDurationMs);
 	}
 	if (firstValidation.isComplete) {
-		return completeOutcome(firstValidation.markdown, firstResult.finishReason, 1);
+		return withDiagnostics(completeOutcome(firstValidation.markdown, firstResult.finishReason, 1),
+			transcript, images.length, sourceImageCount, startedAt, visionDurationMs, textDurationMs);
 	}
 
 	// Step 3: Text provider repairs format if needed.
 	let repairedResult: ProviderResponse;
+	textStartedAt = Date.now();
 	try {
 		repairedResult = await repairProvider.generate({
 			systemPrompt: VISION_REPAIR_SYSTEM_PROMPT,
@@ -117,31 +130,34 @@ export async function generateVisionStructuredMarkdown(
 			maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
 		}, signal);
 	} catch {
-		return incompleteOutcome(
+		textDurationMs += Date.now() - textStartedAt;
+		return withDiagnostics(incompleteOutcome(
 			firstValidation.markdown,
 			firstResult.finishReason,
 			2,
 			'自动格式修复请求失败，已保留首次结果供复制。',
-		);
+		), transcript, images.length, sourceImageCount, startedAt, visionDurationMs, textDurationMs);
 	}
+	textDurationMs += Date.now() - textStartedAt;
 	const repairedValidation = validateVisionOutput(repairedResult, references);
 	if (isIncompleteVisionFinishReason(repairedResult.finishReason)) {
-		return incompleteOutcome(
+		return withDiagnostics(incompleteOutcome(
 			repairedValidation.markdown,
 			repairedResult.finishReason,
 			2,
 			'视觉格式修复请求提前停止，结果仍然不完整。',
-		);
+		), transcript, images.length, sourceImageCount, startedAt, visionDurationMs, textDurationMs);
 	}
 	if (!repairedValidation.isComplete) {
-		return incompleteOutcome(
+		return withDiagnostics(incompleteOutcome(
 			repairedValidation.markdown,
 			repairedResult.finishReason,
 			2,
 			`自动格式修复后结果仍不完整：${repairedValidation.reason ?? '格式校验失败。'}`,
-		);
+		), transcript, images.length, sourceImageCount, startedAt, visionDurationMs, textDurationMs);
 	}
-	return completeOutcome(repairedValidation.markdown, repairedResult.finishReason, 2);
+	return withDiagnostics(completeOutcome(repairedValidation.markdown, repairedResult.finishReason, 2),
+		transcript, images.length, sourceImageCount, startedAt, visionDurationMs, textDurationMs);
 }
 
 export function buildVisionEvidencePrompt(
@@ -253,6 +269,33 @@ function sanitizeRepairText(value: string): string {
 	return value
 		.replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/_=-]*/gi, '[已移除图片数据]')
 		.replace(/\b(?:sk-)[a-z0-9_-]{12,}\b/gi, '[已移除敏感内容]');
+}
+
+function withDiagnostics(
+	outcome: VisionGenerationOutcome,
+	transcript: string,
+	selectedImageCount: number,
+	sourceImageCount: number | undefined,
+	startedAt: number,
+	visionDurationMs: number | undefined,
+	textDurationMs: number,
+): VisionGenerationOutcome {
+	return {
+		...outcome,
+		diagnostics: {
+			transcriptChars: transcript.length,
+			estimatedInputTokens: estimateInputTokens(transcript.length),
+			sourceImageCount: sourceImageCount ?? selectedImageCount,
+			selectedImageCount,
+			visionDurationMs,
+			textDurationMs,
+			totalDurationMs: Date.now() - startedAt,
+			finishReason: outcome.finishReason,
+			attempts: outcome.attempts,
+			isComplete: outcome.isComplete,
+			incompleteReason: outcome.incompleteReason,
+		},
+	};
 }
 
 function completeOutcome(
