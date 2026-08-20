@@ -392,7 +392,7 @@ test('audio tests never add a default shortcut or alter the screenshot toggle co
 	assert.match(main, /classroomSessionController\?\.getState\(\)\.status === 'listening'/);
 });
 
-test('release metadata declares v0.1.0, the compatibility floor, and desktop-only runtime', async () => {
+test('release metadata declares v0.1.1, preserves history, and requires the desktop runtime', async () => {
 	const [manifest, packageJson, packageLock, versions] = await Promise.all([
 		readFile('manifest.json', 'utf8').then(JSON.parse),
 		readFile('package.json', 'utf8').then(JSON.parse),
@@ -400,16 +400,19 @@ test('release metadata declares v0.1.0, the compatibility floor, and desktop-onl
 		readFile('versions.json', 'utf8').then(JSON.parse),
 	]);
 	assert.equal(manifest.minAppVersion, '1.7.2');
-	assert.equal(manifest.version, '0.1.0');
+	assert.equal(manifest.version, '0.1.1');
 	assert.equal(manifest.isDesktopOnly, true);
 	assert.equal(manifest.description, 'Turns classroom transcripts, screenshots, and realtime speech into structured study notes.');
 	assert.doesNotMatch(manifest.description, /Obsidian/u);
 	assert.match(manifest.description, /[.!?]$/u);
-	assert.equal(packageJson.version, '0.1.0');
+	assert.equal(packageJson.version, '0.1.1');
 	assert.equal(packageJson.description, manifest.description);
-	assert.equal(packageLock.version, '0.1.0');
-	assert.equal(packageLock.packages[''].version, '0.1.0');
-	assert.deepEqual(versions, { '0.1.0': '1.7.2' });
+	assert.equal(packageLock.version, '0.1.1');
+	assert.equal(packageLock.packages[''].version, '0.1.1');
+	assert.deepEqual(versions, {
+		'0.1.0': '1.7.2',
+		'0.1.1': '1.7.2',
+	});
 });
 
 test('community submission includes the project license and runtime third-party notices', async () => {

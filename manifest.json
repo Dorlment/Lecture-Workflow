@@ -1,7 +1,7 @@
 {
 	"id": "lecture-workflow",
 	"name": "Lecture Workflow",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"minAppVersion": "1.7.2",
 	"description": "Turns classroom transcripts, screenshots, and realtime speech into structured study notes.",
 	"author": "Dorlment",

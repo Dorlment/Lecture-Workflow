@@ -1,6 +1,6 @@
 {
 	"name": "lecture-workflow",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Turns classroom transcripts, screenshots, and realtime speech into structured study notes.",
 	"main": "main.js",
 	"type": "module",

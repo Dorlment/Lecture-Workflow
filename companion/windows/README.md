@@ -20,7 +20,7 @@ After V0.1 is formally published, download the helper archive matching the plugi
 the official Lecture Workflow GitHub Release:
 
 ```text
-lecture-workflow-windows-helper-win-x64-v0.1.0.zip
+lecture-workflow-windows-helper-win-x64-v0.1.1.zip
 ```
 
 Exit Obsidian completely, then extract the archive contents into the installed plugin directory:
@@ -56,7 +56,7 @@ Do not leave an extra archive-name directory between `windows/` and the executab
 wrong and will not be detected:
 
 ```text
-companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.0/LectureWorkflow.AudioCompanion.Windows.exe
+companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.1/LectureWorkflow.AudioCompanion.Windows.exe
 ```
 
 The current V0.1 publish configuration is framework-dependent. Its generated runtime configuration
