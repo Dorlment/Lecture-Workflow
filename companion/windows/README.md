@@ -1,6 +1,11 @@
-# Lecture Workflow Windows Audio Companion POC
+# Lecture Workflow Windows Audio Companion
 
-This directory contains the Windows-only system-audio probe and protocol-v1 local server for Lecture Workflow.
+Windows Audio Companion is an optional desktop helper for Lecture Workflow users who need to
+capture Windows system-output audio. It is not installed by Obsidian Community Plugins and must
+be installed manually in V0.1.
+
+This directory also contains the source for the Windows-only system-audio probe and protocol-v1
+local server.
 It captures the current default `Render` / `Multimedia` endpoint through WASAPI
 loopback, converts the stream to 16 kHz mono PCM signed 16-bit little-endian, and
 reports aggregate frame and RMS statistics only.
@@ -9,7 +14,65 @@ Neither mode saves, uploads, transcribes, or logs audio content. A staged develo
 be launched from the Obsidian classroom workflow after an explicit classroom-session action; it
 is never configured as an operating-system startup item or background service.
 
-## Stage the development helper for Obsidian
+## Install the V0.1 helper manually
+
+After V0.1 is formally published, download the helper archive matching the plugin version from
+the official Lecture Workflow GitHub Release:
+
+```text
+lecture-workflow-windows-helper-win-x64-v0.1.0.zip
+```
+
+Exit Obsidian completely, then extract the archive contents into the installed plugin directory:
+
+```text
+<Vault>/.obsidian/plugins/lecture-workflow/
+```
+
+The executable must end up directly at:
+
+```text
+<Vault>/.obsidian/plugins/lecture-workflow/companion/windows/LectureWorkflow.AudioCompanion.Windows.exe
+```
+
+The archive is expected to contain this structure, including every additional runtime dependency
+produced by the formal `dotnet publish` command:
+
+```text
+companion/
+└── windows/
+    ├── LectureWorkflow.AudioCompanion.Windows.exe
+    ├── LectureWorkflow.AudioCompanion.Windows.dll
+    ├── LectureWorkflow.AudioCompanion.Core.dll
+    ├── LectureWorkflow.AudioCompanion.Protocol.dll
+    ├── LectureWorkflow.AudioCompanion.Windows.deps.json
+    ├── LectureWorkflow.AudioCompanion.Windows.runtimeconfig.json
+    ├── NAudio.Core.dll
+    ├── NAudio.Wasapi.dll
+    └── other runtime files from the actual publish output
+```
+
+Do not leave an extra archive-name directory between `windows/` and the executable. This layout is
+wrong and will not be detected:
+
+```text
+companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.0/LectureWorkflow.AudioCompanion.Windows.exe
+```
+
+The current V0.1 publish configuration is framework-dependent. Its generated runtime configuration
+requires compatible x64 installations of both `Microsoft.NETCore.App 10.0` and
+`Microsoft.AspNetCore.App 10.0`. Describing that requirement as only the ".NET 10 Desktop Runtime"
+is not accurate. A compatible .NET 10 SDK also supplies the required shared frameworks for
+development machines.
+
+After installation, restart or reload Lecture Workflow and start classroom listening. The plugin
+tries to launch the helper after the classroom session is established. Open the classroom
+Workbench to confirm the system-audio status or retry system audio after a previous failure.
+
+The plugin does not download, extract, install, replace, or update this helper. Text-only and image
+organization remain available without it.
+
+## Developer staging for Obsidian
 
 From the repository root, publish and stage the framework-dependent helper into an existing
 Lecture Workflow development plugin directory:
@@ -24,10 +87,11 @@ dependency set produced by `dotnet publish`, filters development-only files such
 then atomically replaces only `companion/windows`. It does not inspect or modify `data.json`.
 
 The staged layout contains `companion/windows/LectureWorkflow.AudioCompanion.Windows.exe`, the
-Core, Protocol and Windows assemblies, `.deps.json`, `.runtimeconfig.json`, and NAudio runtime
-dependencies. This is a framework-dependent development build and requires the .NET 10 Desktop
-Runtime on the Windows machine. It is not an installer, auto-updater, background service, or
-production packaging flow.
+Core, Protocol and Windows assemblies, `.deps.json`, `.runtimeconfig.json`, and the complete runtime
+dependency set retained from the actual publish output. This is a framework-dependent development
+build and requires compatible x64 `Microsoft.NETCore.App 10.0` and `Microsoft.AspNetCore.App 10.0`
+shared frameworks on the Windows machine. It is not an installer, auto-updater, background service,
+or production packaging flow.
 
 ## Run the probe
 
@@ -50,7 +114,12 @@ the probe stops.
 dotnet restore LectureWorkflow.AudioCompanion.Windows.sln
 dotnet build LectureWorkflow.AudioCompanion.Windows.sln
 dotnet test --solution LectureWorkflow.AudioCompanion.Windows.sln
+dotnet publish src/LectureWorkflow.AudioCompanion.Windows/LectureWorkflow.AudioCompanion.Windows.csproj -c Release --no-self-contained
 ```
+
+The publish command above reflects the current framework-dependent project configuration. Formal
+release packaging must use the complete publish output and omit PDB, source, test, log, and other
+development-only files; the source repository does not track publish binaries.
 
 ## Run the protocol server
 

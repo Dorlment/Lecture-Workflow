@@ -619,6 +619,22 @@ test('TypeScript frame parser reads the shared C# golden fixture', () => {
 	assert.equal(Buffer.from(frame.pcm).toString('hex'), sharedFrameFixture.pcmHex);
 });
 
+test('Windows helper documentation requires manual v0.1 installation at the resolver path', async () => {
+	const [rootReadme, companionReadme] = await Promise.all([
+		readFile('README.md', 'utf8'),
+		readFile('companion/windows/README.md', 'utf8'),
+	]);
+	const combined = `${rootReadme}\n${companionReadme}`;
+	assert.match(combined, /lecture-workflow-windows-helper-win-x64-v0\.1\.0\.zip/);
+	assert.match(combined, /<Vault>\/\.obsidian\/plugins\/lecture-workflow\/companion\/windows\/LectureWorkflow\.AudioCompanion\.Windows\.exe/);
+	assert.match(combined, /companion\/windows\/lecture-workflow-windows-helper-win-x64-v0\.1\.0\/LectureWorkflow\.AudioCompanion\.Windows\.exe/);
+	assert.match(companionReadme, /Microsoft\.NETCore\.App 10\.0/);
+	assert.match(companionReadme, /Microsoft\.AspNetCore\.App 10\.0/);
+	assert.match(companionReadme, /complete runtime\s+dependency set retained from the actual publish output/);
+	assert.match(combined, /does not download, extract, install, replace, or update this helper|\u4e0d\u4f1a\u81ea\u52a8\u4e0b\u8f7d\u3001\u5b89\u88c5\u3001\u89e3\u538b\u6216\u66f4\u65b0 Helper/);
+	assert.doesNotMatch(companionReadme, /^# .*POC$/mu);
+});
+
 test('one-paste Windows acceptance script keeps its pairing token in process memory', async () => {
 	const readme = await readFile('companion/windows/README.md', 'utf8');
 	const match = readme.match(/## One-paste default-device-change acceptance test[\s\S]*?```powershell\r?\n([\s\S]*?)\r?\n```/);

@@ -62,7 +62,7 @@ export function runtimeErrorMessage(
 	}
 	const messages: Partial<Record<AudioCompanionRuntimeLocalErrorCode, string>> = {
 		'unsupported-runtime': '系统音频助手目前仅支持 Obsidian Windows 桌面端。',
-		'helper-unavailable': 'Windows 音频助手尚未安装或开发运行文件尚未准备好。',
+		'helper-unavailable': '未检测到 Windows Audio Companion。请从 Lecture Workflow 官方 GitHub Release 手动下载与当前插件版本一致的 Windows Helper，解压到 <Vault>/.obsidian/plugins/lecture-workflow/companion/windows/ 后重新加载插件。',
 		'session-unavailable': '请先启动课堂监听，再启动系统音频。',
 		'token-generation-failed': '无法安全初始化音频助手身份验证。',
 		'launch-failed': '无法启动 Windows 音频助手。',
