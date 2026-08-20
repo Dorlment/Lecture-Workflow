@@ -34,6 +34,8 @@ const WINDOWS_PROJECT = join(
 	'LectureWorkflow.AudioCompanion.Windows',
 	'LectureWorkflow.AudioCompanion.Windows.csproj',
 );
+const THIRD_PARTY_NOTICE = join(WINDOWS_ROOT, 'THIRD_PARTY_NOTICES.txt');
+export const THIRD_PARTY_NOTICE_FILE = 'THIRD_PARTY_NOTICES.txt';
 
 export async function stageAudioCompanion({
 	pluginDir,
@@ -56,6 +58,7 @@ export async function stageAudioCompanion({
 		await validateMinimumRuntime(publishDirectory);
 		await mkdir(stageDirectory, { recursive: true });
 		await copyPublishTree(publishDirectory, stageDirectory);
+		await cp(THIRD_PARTY_NOTICE, join(stageDirectory, THIRD_PARTY_NOTICE_FILE));
 		await validateMinimumRuntime(stageDirectory);
 		await mkdir(companionParent, { recursive: true });
 		if (await pathExists(destination)) {

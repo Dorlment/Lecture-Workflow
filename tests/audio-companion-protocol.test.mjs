@@ -632,6 +632,7 @@ test('Windows helper documentation requires manual v0.1 installation at the reso
 	assert.match(companionReadme, /Microsoft\.AspNetCore\.App 10\.0/);
 	assert.match(companionReadme, /complete runtime\s+dependency set retained from the actual publish output/);
 	assert.match(combined, /does not download, extract, install, replace, or update this helper|\u4e0d\u4f1a\u81ea\u52a8\u4e0b\u8f7d\u3001\u5b89\u88c5\u3001\u89e3\u538b\u6216\u66f4\u65b0 Helper/);
+	assert.match(companionReadme, /THIRD_PARTY_NOTICES\.txt/);
 	assert.doesNotMatch(companionReadme, /^# .*POC$/mu);
 });
 

@@ -15,6 +15,7 @@ import { build } from 'esbuild';
 
 import {
 	REQUIRED_RUNTIME_FILES,
+	THIRD_PARTY_NOTICE_FILE,
 	shouldCopyPublishedPath,
 	stageAudioCompanion,
 	validatePluginDirectory,
@@ -145,6 +146,10 @@ test('staging copies the actual publish tree, validates the plugin, and leaves d
 	});
 	assert.ok(result.files.includes('Future.Dependency.dll'));
 	assert.ok(result.files.includes('runtimes/win-x64/native/future-runtime.dll'));
+	assert.ok(result.files.includes(THIRD_PARTY_NOTICE_FILE));
+	const stagedNotice = await readFile(join(plugin, 'companion', 'windows', THIRD_PARTY_NOTICE_FILE), 'utf8');
+	assert.match(stagedNotice, /NAudio\.Core 2\.3\.0 and NAudio\.Wasapi 2\.3\.0/u);
+	assert.match(stagedNotice, /License: MIT/u);
 	assert.equal(result.files.some((path) => path.endsWith('.pdb')), false);
 	assert.equal(result.files.some((path) => path.includes('TestResults')), false);
 	assert.equal(await readFile(join(plugin, 'data.json'), 'utf8'), '{"private":"unchanged"}');

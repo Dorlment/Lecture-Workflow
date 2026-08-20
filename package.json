@@ -1,7 +1,7 @@
 {
 	"name": "lecture-workflow",
 	"version": "0.1.0",
-	"description": "将课堂文字稿、笔记和截图整理成结构化学习笔记，并保存回 Obsidian。",
+	"description": "Turns classroom transcripts, screenshots, and realtime speech into structured study notes.",
 	"main": "main.js",
 	"type": "module",
 	"private": true,
