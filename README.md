@@ -56,6 +56,10 @@ Qwen Vision 不负责最终完整笔记的生成。
 
 如需将课堂语音实时转成文字，需要完成 Qwen Realtime ASR 配置。实时识别的定稿会自动追加到当前课堂笔记的「原始文字稿」，插件不保存录音。
 
+### 4. Custom OpenAI-compatible（高级）
+
+这是面向熟悉兼容 API 的用户提供的高级配置，普通用户无需配置。只有在你主动填写并选择 Custom OpenAI-compatible Provider、随后使用相应 AI 功能时，插件才会把请求发送到你填写的 Base URL / compatible endpoint，并使用你自己填写的 API Key。Lecture Workflow 无法替第三方兼容服务保证其隐私或数据处理政策；使用前请自行确认目标服务可信。
+
 完成 Provider 配置后，可使用对应的「测试连接」确认配置有效。如果只使用文字 AI 整理，无需配置图片理解和实时转写。
 
 > [!WARNING]
@@ -76,6 +80,8 @@ Windows Audio Companion 是 Windows 用户在需要直接获取系统音频时�
 ```text
 lecture-workflow-windows-helper-win-x64-v0.1.0.zip
 ```
+
+Obsidian 默认的 Vault 配置目录名称通常是 `.obsidian`。如果你修改过 Vault 的配置目录名称，请在下列路径中使用实际配置目录；示例中的 `.obsidian` 不是强制固定名称。
 
 安装前完全退出 Obsidian，然后将 ZIP 中的内容解压到：
 
@@ -132,9 +138,12 @@ Helper ZIP 应保留正式 `dotnet publish` 输出的全部必需运行依赖，
 
 - API Key 仅保存在当前 Vault 的插件配置 `data.json` 中，当前未加密。
 - 后台截图监听不读取剪贴板文字，不自动上传截图。
-- 启用图片 AI 整理后，经用户确认的图片会发送给所选第三方 Vision Provider。
+- 只有在用户主动执行相应功能时，插件才会向第三方 AI 服务发起请求。
+- DeepSeek 用作 Text Provider；AI 整理时，用户确认的文字与上下文会发送给 DeepSeek，以生成最终结构化笔记。
+- 启用图片 AI 整理后，经用户确认的图片会发送给 Qwen Vision 或用户主动选择的其他 Vision Provider，用于课堂截图视觉理解；图片不会上传到公共图床。
 - 启用 Realtime ASR 后，实时 PCM 会发送给配置的 Qwen Realtime ASR 服务；插件不保存录音。
-- AI 整理会将用户确认的文字和图片上下文发送给所配置的第三方 Provider。
+- 只有用户主动配置并选择 Custom OpenAI-compatible Provider 时，相关请求才会发送到用户填写的 Base URL。用户应自行确认该第三方兼容服务可信及其隐私政策可接受。
+- Windows Audio Companion 只通过 `localhost` 与插件通信，在本机实时处理系统音频；Helper 不保存录音，也不会自行上传音频。
 - Lecture Workflow V0.1 不包含客户端遥测，不保存录音，不会自动安装 Helper。
 
 ## V0.1 能力边界
@@ -175,3 +184,7 @@ Helper ZIP 应保留正式 `dotnet publish` 输出的全部必需运行依赖，
 - Windows Audio Companion 的普通用户安装与开发说明：[`companion/windows/README.md`](companion/windows/README.md)
 - Audio Companion wire protocol：[`docs/audio-companion-protocol.md`](docs/audio-companion-protocol.md)
 - V0.1 能力边界：[`docs/v0.1-capability-boundaries.md`](docs/v0.1-capability-boundaries.md)
+
+## License
+
+Lecture Workflow 使用 [MIT License](LICENSE)。随项目包含或分发的第三方组件遵循各自的许可证，详见 [Third-party notices](THIRD_PARTY_NOTICES.md)。

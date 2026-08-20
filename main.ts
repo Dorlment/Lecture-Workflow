@@ -227,12 +227,6 @@ export default class LectureWorkflowPlugin extends Plugin {
 			callback: () => this.openClassroomWorkbench(),
 		});
 
-		this.addCommand({
-			id: 'run-realtime-asr-transport-ab-diagnostic',
-			name: '运行Realtime ASR Transport A/B诊断（开发）',
-			callback: () => this.openRealtimeAsrTransportAbDiagnostic(),
-		});
-
 		this.addRibbonIcon('notebook-pen', 'Lecture Workflow', (event) => {
 			this.showRibbonMenu(event);
 		});

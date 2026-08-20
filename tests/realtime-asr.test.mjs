@@ -1225,13 +1225,15 @@ test('official-sequence runner bounds connect, task-started, and task-finished w
 	}
 });
 
-test('A/B command and Modal provide a cancellable development-only entry without Companion or persistence', async () => {
+test('A/B diagnostics remain internally testable but are not registered in the production command palette', async () => {
 	const [main, modal, diagnostic] = await Promise.all([
 		readFile('main.ts', 'utf8'),
 		readFile('realtime-asr-transport-ab-modal.ts', 'utf8'),
 		readFile('realtime-asr-transport-ab-diagnostic.ts', 'utf8'),
 	]);
-	assert.match(main, /id: 'run-realtime-asr-transport-ab-diagnostic'[\s\S]*?name: '运行Realtime ASR Transport A\/B诊断（开发）'/);
+	assert.doesNotMatch(main, /id: 'run-realtime-asr-transport-ab-diagnostic'/);
+	assert.doesNotMatch(main, /name: '运行Realtime ASR Transport A\/B诊断（开发）'/);
+	assert.match(main, /private openRealtimeAsrTransportAbDiagnostic\(\): void/);
 	assert.match(main, /请先停止当前课堂监听和实时转写。/);
 	assert.match(main, /realtimeAsrTransportAbModal\?\.close\(\)/);
 	assert.match(modal, /每一路固定运行75秒[\s\S]*?两路总计约150秒真实百炼ASR用量/);
@@ -3177,6 +3179,7 @@ test('Workbench gate diagnostics use fixed boolean and exhaustive safe Chinese l
 });
 
 test('bundle gate embeds ws, leaves no external ws require, and does not initialize Node builtins on module load', async () => {
+	const buildConfig = await readFile('esbuild.config.mjs', 'utf8');
 	const require = createRequire(import.meta.url);
 	const wsNodeEntry = require.resolve('ws');
 	const output = await build({
@@ -3199,6 +3202,8 @@ test('bundle gate embeds ws, leaves no external ws require, and does not initial
 	const bundled = output.outputFiles[0].text;
 	assert.doesNotMatch(bundled, /require\(["']ws["']\)/);
 	assert.match(bundled, /permessage-deflate/);
+	assert.match(buildConfig, /This bundle includes ws[\s\S]*?licensed under MIT/);
+	assert.match(buildConfig, /Copyright \(c\) 2011 Einar Otto Stangvik/);
 	vm.runInNewContext(bundled, {
 		module: { exports: {} }, exports: {},
 		require(name) { throw new Error(`Node module initialized during mobile-safe load: ${name}`); },

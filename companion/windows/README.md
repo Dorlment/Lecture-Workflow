@@ -119,7 +119,9 @@ dotnet publish src/LectureWorkflow.AudioCompanion.Windows/LectureWorkflow.AudioC
 
 The publish command above reflects the current framework-dependent project configuration. Formal
 release packaging must use the complete publish output and omit PDB, source, test, log, and other
-development-only files; the source repository does not track publish binaries.
+development-only files. It must place `THIRD_PARTY_NOTICES.txt` beside the runtime files so the
+binary distribution carries the required license notices; the source repository does not track
+publish binaries.
 
 ## Run the protocol server
 

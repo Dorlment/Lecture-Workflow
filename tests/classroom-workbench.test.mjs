@@ -402,10 +402,28 @@ test('release metadata declares v0.1.0, the compatibility floor, and desktop-onl
 	assert.equal(manifest.minAppVersion, '1.7.2');
 	assert.equal(manifest.version, '0.1.0');
 	assert.equal(manifest.isDesktopOnly, true);
+	assert.equal(manifest.description, 'Turns classroom transcripts, screenshots, and realtime speech into structured study notes.');
+	assert.doesNotMatch(manifest.description, /Obsidian/u);
+	assert.match(manifest.description, /[.!?]$/u);
 	assert.equal(packageJson.version, '0.1.0');
+	assert.equal(packageJson.description, manifest.description);
 	assert.equal(packageLock.version, '0.1.0');
 	assert.equal(packageLock.packages[''].version, '0.1.0');
 	assert.deepEqual(versions, { '0.1.0': '1.7.2' });
+});
+
+test('community submission includes the project license and runtime third-party notices', async () => {
+	const [license, notices, helperNotices] = await Promise.all([
+		readFile('LICENSE', 'utf8'),
+		readFile('THIRD_PARTY_NOTICES.md', 'utf8'),
+		readFile('companion/windows/THIRD_PARTY_NOTICES.txt', 'utf8'),
+	]);
+	assert.match(license, /^MIT License\s+Copyright \(c\) 2026 Dorlment/u);
+	assert.match(notices, /## ws[\s\S]*?`ws` 8\.21\.1[\s\S]*?License: MIT/u);
+	assert.match(notices, /## NAudio[\s\S]*?`NAudio\.Core` 2\.3\.0[\s\S]*?License: MIT/u);
+	assert.match(notices, /## Microsoft \.NET apphost[\s\S]*?License: MIT/u);
+	assert.match(helperNotices, /NAudio\.Core 2\.3\.0 and NAudio\.Wasapi 2\.3\.0/u);
+	assert.match(helperNotices, /Microsoft \.NET application host/u);
 });
 
 test('v0.1 README documents the real workflow, privacy, and capability boundaries', async () => {
@@ -422,9 +440,15 @@ test('v0.1 README documents the real workflow, privacy, and capability boundarie
 		'Qwen Vision 视觉证据输出上限：2048 tokens',
 		'单次最多选择 10 张图片',
 		'默认 Provider 请求超时：150 秒',
+		'Custom OpenAI-compatible（高级）',
+		'只有在用户主动执行相应功能时，插件才会向第三方 AI 服务发起请求',
+		'Windows Audio Companion 只通过 `localhost` 与插件通信',
 	]) {
 		assert.match(readme, new RegExp(text));
 	}
+	assert.match(readme, /Obsidian 默认的 Vault 配置目录名称通常是 `\.[o]bsidian`/u);
+	assert.match(readme, /Lecture Workflow 使用 \[MIT License\]\(LICENSE\)/u);
+	assert.match(readme, /\[Third-party notices\]\(THIRD_PARTY_NOTICES\.md\)/u);
 	assert.match(readme, /不读取剪贴板文字，也不会自动上传图片/);
 	assert.match(readme, /API Key 保存在本地插件配置 `data\.json` 中，当前未加密/);
 	assert.match(readme, /`finishReason=length` 不会自动 repair/);
