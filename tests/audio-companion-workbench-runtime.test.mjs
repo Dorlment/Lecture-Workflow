@@ -143,6 +143,12 @@ test('runtime UI maps all statuses, controls, and safe stable remote errors', ()
 		remoteErrorCode: 'BUSY',
 	}), true);
 	assert.match(busy.errorMessage, /已有活动连接/);
+	const helperUnavailable = audioCompanionRuntimeUiState(runtimeState('helper-unavailable', {
+		errorCode: 'helper-unavailable',
+	}), true);
+	assert.match(helperUnavailable.errorMessage, /手动下载与当前插件版本一致的 Windows Helper/);
+	assert.match(helperUnavailable.errorMessage, /<Vault>\/.obsidian\/plugins\/lecture-workflow\/companion\/windows\//);
+	assert.doesNotMatch(helperUnavailable.errorMessage, /自动下载|自动安装|开发运行文件/);
 });
 
 test('plugin orchestration starts audio after classroom and stops audio before classroom in finally', async () => {

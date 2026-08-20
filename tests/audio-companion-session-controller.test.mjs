@@ -614,7 +614,7 @@ test('plugin wiring owns one controller and no permanent main-level frame listen
 	assert.doesNotMatch(main, /onAudioFrame\s*:/);
 	assert.match(main, /createWindowsPluginRelativeLaunchResolver\(/);
 	assert.match(main, /createObsidianCompanionPluginDirectoryProvider\(this\)/);
-	assert.equal(JSON.parse(manifest).isDesktopOnly, false);
+	assert.equal(JSON.parse(manifest).isDesktopOnly, true);
 	assert.doesNotMatch(`${processManager}\n${readiness}\n${loader}`, /from ['"]node:/);
 	assert.doesNotMatch(processManager, /43127|COMPANION_PORT|launchResolver/);
 });

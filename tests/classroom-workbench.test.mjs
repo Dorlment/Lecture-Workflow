@@ -392,10 +392,44 @@ test('audio tests never add a default shortcut or alter the screenshot toggle co
 	assert.match(main, /classroomSessionController\?\.getState\(\)\.status === 'listening'/);
 });
 
-test('manifest declares the official revealLeaf compatibility floor', async () => {
-	const manifest = JSON.parse(await readFile('manifest.json', 'utf8'));
+test('release metadata declares v0.1.0, the compatibility floor, and desktop-only runtime', async () => {
+	const [manifest, packageJson, packageLock, versions] = await Promise.all([
+		readFile('manifest.json', 'utf8').then(JSON.parse),
+		readFile('package.json', 'utf8').then(JSON.parse),
+		readFile('package-lock.json', 'utf8').then(JSON.parse),
+		readFile('versions.json', 'utf8').then(JSON.parse),
+	]);
 	assert.equal(manifest.minAppVersion, '1.7.2');
-	assert.equal(manifest.version, '1.0.0');
+	assert.equal(manifest.version, '0.1.0');
+	assert.equal(manifest.isDesktopOnly, true);
+	assert.equal(packageJson.version, '0.1.0');
+	assert.equal(packageLock.version, '0.1.0');
+	assert.equal(packageLock.packages[''].version, '0.1.0');
+	assert.deepEqual(versions, { '0.1.0': '1.7.2' });
+});
+
+test('v0.1 README documents the real workflow, privacy, and capability boundaries', async () => {
+	const readme = await readFile('README.md', 'utf8');
+	for (const text of [
+		'创建课堂笔记',
+		'开始课堂监听',
+		'课堂截图 / 实时转写',
+		'AI 整理当前课堂笔记',
+		'Qwen Vision 不负责最终完整笔记的生成',
+		'实时识别的定稿会自动追加到当前课堂笔记的「原始文字稿」',
+		'插件不保存录音',
+		'Text Provider 结构化输出上限：8192 tokens',
+		'Qwen Vision 视觉证据输出上限：2048 tokens',
+		'单次最多选择 10 张图片',
+		'默认 Provider 请求超时：150 秒',
+	]) {
+		assert.match(readme, new RegExp(text));
+	}
+	assert.match(readme, /不读取剪贴板文字，也不会自动上传图片/);
+	assert.match(readme, /API Key 保存在本地插件配置 `data\.json` 中，当前未加密/);
+	assert.match(readme, /`finishReason=length` 不会自动 repair/);
+	assert.match(readme, /`context-limit` 时，插件不会静默截断 transcript/);
+	assert.doesNotMatch(readme, /Snipaste Ctrl\+1|Windows Win\+Shift\+S/);
 });
 
 test('release hardening keeps primary classroom information visible and nests technical diagnostics', async () => {

@@ -37,7 +37,6 @@ import {
 	VISION_WORKFLOW_CONFLICT_MESSAGE,
 } from './ai-workflow';
 import { CreateLectureNoteModal } from './modal';
-import { logGenerationBenchmark } from './generation-diagnostics';
 import {
 	ClassroomSessionController,
 	classroomSessionMenuTitle,
@@ -987,9 +986,6 @@ export default class LectureWorkflowPlugin extends Plugin {
 			const preview = await this.aiWorkflowGate.completeWithPreview(
 				() => service.generate(snapshot, providerId),
 			);
-			if (preview.diagnostics) {
-				logGenerationBenchmark(preview.diagnostics);
-			}
 			if (!preview.isComplete) {
 				progress.failure('AI 结果不完整，已禁止写入；可在预览中复制或重新生成。');
 			} else {
@@ -1030,9 +1026,6 @@ export default class LectureWorkflowPlugin extends Plugin {
 			const preview = await this.aiWorkflowGate.completeWithPreview(
 				() => service.generateVision(prepared, providerId, controller.signal),
 			);
-			if (preview.diagnostics) {
-				logGenerationBenchmark(preview.diagnostics);
-			}
 			if (!shouldAcceptVisionResult(controller.signal)) {
 				this.aiWorkflowGate.reset();
 				progress.cancel('视觉 AI 整理已取消。');

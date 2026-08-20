@@ -8,11 +8,20 @@
 # npm
 node_modules
 
+# Local environment files
+.env*
+!.env.example
+
 # Generated plugin bundle; upload it to GitHub releases instead.
 main.js
 
 # Source maps
 *.map
+
+# Logs and crash dumps
+*.log
+*.dmp
+*.dump
 
 # Obsidian plugin data
 data.json
@@ -29,6 +38,14 @@ data.json
 **/TestResults/
 **/artifacts/
 **/publish/
+
+# Release and build staging output
+dist/
+release-artifacts/
+*.zip
+*.sha256
+*.tmp
+*.temp
 
 # Temporary audio files
 *.wav
