@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { build } from 'esbuild';
@@ -128,6 +129,15 @@ test('token estimate is a rough chars/2 ceiling without a tokenizer dependency',
 	assert.equal(estimateInputTokens(1), 1);
 	assert.equal(estimateInputTokens(100), 50);
 	assert.equal(estimateInputTokens(101), 51);
+});
+
+test('production keeps diagnostics in outcomes without benchmark console logging', async () => {
+	const [diagnosticsSource, mainSource] = await Promise.all([
+		readFile('generation-diagnostics.ts', 'utf8'),
+		readFile('main.ts', 'utf8'),
+	]);
+	assert.doesNotMatch(diagnosticsSource, /console\./);
+	assert.doesNotMatch(mainSource, /logGenerationBenchmark|\[LectureWorkflow\]\[benchmark\]/);
 });
 
 test('text-only success records transcriptChars, attempts=1 and real finishReason', async () => {

@@ -80,10 +80,10 @@ export function selectImagesByTimeline(
 
 	// Combine and sort by offsetMs
 	const selected = [first, ...middleImages, last].sort((a, b) => {
-		if (a!.offsetMs !== b!.offsetMs) {
-			return a!.offsetMs - b!.offsetMs;
+		if (a.offsetMs !== b.offsetMs) {
+			return a.offsetMs - b.offsetMs;
 		}
-		return a!.originalIndex - b!.originalIndex;
+		return a.originalIndex - b.originalIndex;
 	});
 
 	return {

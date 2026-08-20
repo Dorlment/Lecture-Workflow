@@ -40,11 +40,3 @@ export interface GenerationDiagnostics {
 export function estimateInputTokens(transcriptChars: number): number {
 	return Math.ceil(transcriptChars / 2);
 }
-
-/**
- * Emit exactly one structured benchmark log line for manual measurement.
- * Never logs prompts, transcripts, image data, keys or tokens.
- */
-export function logGenerationBenchmark(diagnostics: GenerationDiagnostics): void {
-	console.log('[LectureWorkflow][benchmark]', JSON.stringify(diagnostics));
-}
