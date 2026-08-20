@@ -44,6 +44,14 @@ test('staging and runtime discovery share the same minimum completeness contract
 	assert.deepEqual([...REQUIRED_RUNTIME_FILES], [...WINDOWS_COMPANION_REQUIRED_FILES]);
 });
 
+test('Windows helper Release builds map local source paths to a stable virtual root', async () => {
+	const props = await readFile('companion/windows/Directory.Build.props', 'utf8');
+	assert.match(props, /Condition="'\$\(Configuration\)' == 'Release'"/u);
+	assert.match(props, /<ContinuousIntegrationBuild>true<\/ContinuousIntegrationBuild>/u);
+	assert.match(props, /<PathMap>\$\(MSBuildThisFileDirectory\)=\/_\/<\/PathMap>/u);
+	assert.doesNotMatch(props, /<DebugType>none<\/DebugType>/u);
+});
+
 test('plugin-relative resolver validates the minimum runtime and exact launch spec', async () => {
 	const checks = [];
 	const resolver = createWindowsPluginRelativeLaunchResolver({
