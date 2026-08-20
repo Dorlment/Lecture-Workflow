@@ -3221,7 +3221,8 @@ test('settings and plugin integration reuse one Qwen key and do not persist tran
 	assert.match(workbench, /RealtimeAsrWorkbenchBinding/);
 	assert.match(workbench, /perMessageDeflateConfigured[\s\S]*?perMessageDeflateNegotiated/);
 	assert.match(workbench, /partialText[\s\S]*?lastFinalText[\s\S]*?sentAudioDurationMs/);
-	assert.match(workbench, /发送详细状态/);
+	assert.match(workbench, /详细状态/);
+	assert.match(workbench, /开发者诊断/);
 	assert.match(workbench, /queuedChunkCount[\s\S]*?inFlightSendCount[\s\S]*?wsBufferedAmount/);
 	assert.match(
 		workbench,

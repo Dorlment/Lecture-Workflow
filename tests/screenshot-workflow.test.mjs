@@ -499,7 +499,7 @@ test('the obsolete capture entry is removed while the reusable paste modules rem
 	assert.doesNotMatch(mainSource, /test-classroom-screenshot-compatibility|getDisplayMedia/);
 	assert.doesNotMatch(mainSource, /capture-classroom-screenshot|setTitle\('截取课堂图片'\)/);
 	assert.match(mainSource, /setTitle\('创建课堂笔记'\)/);
-	assert.match(mainSource, /setTitle\('AI 整理当前笔记'\)/);
+	assert.match(mainSource, /setTitle\('AI 整理当前课堂笔记'\)/);
 	await readFile('screenshot-paste-modal.ts', 'utf8');
 	await readFile('screenshot-service.ts', 'utf8');
 });

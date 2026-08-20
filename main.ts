@@ -37,6 +37,7 @@ import {
 	VISION_WORKFLOW_CONFLICT_MESSAGE,
 } from './ai-workflow';
 import { CreateLectureNoteModal } from './modal';
+import { logGenerationBenchmark } from './generation-diagnostics';
 import {
 	ClassroomSessionController,
 	classroomSessionMenuTitle,
@@ -564,7 +565,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 		if (!controller) return;
 		const result = await controller.start();
 		if (result === 'configuration-error') {
-			new Notice('实时转写未启动：请先配置 Qwen API key、Workspace ID 和实时转写模型。');
+			new Notice('实时转写未配置。请先在 Lecture Workflow 设置中完成 Qwen 实时转写配置，然后重新开始课堂。');
 		}
 	}
 
@@ -708,6 +709,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 		const isListening = classroomState.status === 'listening';
 		menu.addItem((item) =>
 			item
+				.setTitle('创建课堂笔记')
+				.setIcon('file-plus-2')
+				.onClick(() => this.openCreateLectureNoteModal()),
+		);
+		menu.addItem((item) =>
+			item
 				.setTitle(classroomSessionMenuTitle(classroomState))
 				.setIcon(isListening ? 'circle-stop' : 'radio-tower')
 				.onClick(() => this.toggleClassroomListening()),
@@ -720,13 +727,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 		);
 		menu.addItem((item) =>
 			item
-				.setTitle('创建课堂笔记')
-				.setIcon('file-plus-2')
-				.onClick(() => this.openCreateLectureNoteModal()),
-		);
-		menu.addItem((item) =>
-			item
-				.setTitle('AI 整理当前笔记')
+				.setTitle('AI 整理当前课堂笔记')
 				.setIcon('wand-sparkles')
 				.onClick(() => this.runAiWorkflow()),
 		);
@@ -986,6 +987,9 @@ export default class LectureWorkflowPlugin extends Plugin {
 			const preview = await this.aiWorkflowGate.completeWithPreview(
 				() => service.generate(snapshot, providerId),
 			);
+			if (preview.diagnostics) {
+				logGenerationBenchmark(preview.diagnostics);
+			}
 			if (!preview.isComplete) {
 				progress.failure('AI 结果不完整，已禁止写入；可在预览中复制或重新生成。');
 			} else {
@@ -1026,6 +1030,9 @@ export default class LectureWorkflowPlugin extends Plugin {
 			const preview = await this.aiWorkflowGate.completeWithPreview(
 				() => service.generateVision(prepared, providerId, controller.signal),
 			);
+			if (preview.diagnostics) {
+				logGenerationBenchmark(preview.diagnostics);
+			}
 			if (!shouldAcceptVisionResult(controller.signal)) {
 				this.aiWorkflowGate.reset();
 				progress.cancel('视觉 AI 整理已取消。');

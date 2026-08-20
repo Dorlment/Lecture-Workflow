@@ -112,7 +112,7 @@ function errorMessage(state: RealtimeAsrRuntimeState): string {
 		}
 	}
 	const messages: Record<RealtimeAsrErrorCode, string> = {
-		'configuration-error': '请先配置 Qwen API Key、Workspace ID 和实时转写模型。',
+		'configuration-error': '实时转写未配置。请先在 Lecture Workflow 设置中完成 Qwen 实时转写配置，然后重新开始课堂。',
 		'auth-failed': '百炼身份验证失败，请检查 Qwen 配置。',
 		'connection-failed': '无法连接百炼实时转写服务。',
 		'task-start-failed': '实时识别任务启动超时。',

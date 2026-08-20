@@ -510,3 +510,15 @@ test('vision settings preserve valid values and normalize maxVisionImages into 1
 	assert.equal(configured.visionProvider, 'custom');
 	assert.equal(configured.customOpenAI.supportsVision, true);
 });
+
+test('vision confirmation keeps routing guidance visible and technical fields collapsed', async () => {
+	const source = await readFile('vision-confirmation-modal.ts', 'utf8');
+	assert.match(source, /课堂图片将由 Qwen-VL 进行视觉理解，视觉结果将作为辅助上下文提供给文本模型；完整文字稿由文本模型负责最终结构化整理。/);
+	assert.match(source, /const advancedDetails = this\.contentEl\.createEl\('details'\)/);
+	assert.match(source, /advancedDetails\.createEl\('summary', \{ text: '高级信息' \}\)/);
+	assert.match(source, /advancedDetails\.createEl\('p',[\s\S]*?本次视觉 Provider/);
+	assert.match(source, /const list = advancedDetails\.createEl\('ul'\)/);
+	assert.match(source, /检测到 \$\{this\.summary\.imageCount\} 张图片/);
+	assert.match(source, /可能产生额外 Token 或调用费用/);
+	assert.match(source, /setButtonText\('发送并整理'\)/);
+});

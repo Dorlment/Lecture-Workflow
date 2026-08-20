@@ -9,6 +9,7 @@ import {
 	generateStructuredMarkdown,
 } from './ai-generation';
 import { buildTimelineContext } from './classroom-timeline-read-model';
+import type { GenerationDiagnostics } from './generation-diagnostics';
 import {
 	collectVisionImages,
 	verifyVisionAttachmentSnapshots,
@@ -50,6 +51,8 @@ export interface AiGenerationSnapshot {
 export interface VisionGenerationSnapshot extends AiGenerationSnapshot {
 	resolvedImages: ResolvedVisionImage[];
 	attachmentSnapshots: VisionAttachmentSnapshot[];
+	/** Candidate image references found in the note before timeline selection. */
+	sourceImageCount: number;
 }
 
 export interface AiPreviewData {
@@ -67,6 +70,7 @@ export interface AiPreviewData {
 	attempts: number;
 	usesVision?: boolean;
 	attachmentSnapshots?: VisionAttachmentSnapshot[];
+	diagnostics?: GenerationDiagnostics;
 }
 
 export const VISION_WORKFLOW_CONFLICT_MESSAGE = '笔记或课堂图片在 AI 整理期间已发生变化，为避免写入过期结果，已取消写入。请关闭预览后重新整理。';
@@ -122,6 +126,7 @@ export class AiWorkflowService {
 			throw new Error('目标笔记已不存在，已中止图片读取。');
 		}
 		const host = new ObsidianVisionAttachmentHost(this.app.metadataCache, this.app.vault);
+		const sourceImageCount = snapshot.imageReferences.length;
 
 		// Create selection function for time-based image selection
 		const selectImages = <TImageFile>(
@@ -163,6 +168,7 @@ export class AiWorkflowService {
 			imageReferences: collected.references,
 			resolvedImages: collected.images,
 			attachmentSnapshots: collected.attachmentSnapshots,
+			sourceImageCount,
 		};
 	}
 
@@ -189,6 +195,7 @@ export class AiWorkflowService {
 			attempts: outcome.attempts,
 			usesVision: false,
 			attachmentSnapshots: [],
+			diagnostics: outcome.diagnostics,
 		};
 	}
 
@@ -210,6 +217,7 @@ export class AiWorkflowService {
 				snapshot.resolvedImages,
 				signal,
 				timelineContext,
+				snapshot.sourceImageCount,
 			);
 			return {
 				filePath: snapshot.filePath,
@@ -226,6 +234,7 @@ export class AiWorkflowService {
 				attempts: outcome.attempts,
 				usesVision: true,
 				attachmentSnapshots: snapshot.attachmentSnapshots.map((item) => ({ ...item })),
+				diagnostics: outcome.diagnostics,
 			};
 		} finally {
 			this.disposeVisionSnapshot(snapshot);
@@ -238,7 +247,7 @@ export class AiWorkflowService {
 			isComplete: preview.isComplete,
 			incompleteReason: preview.incompleteReason,
 			attempts: preview.attempts,
-			finishReason: null,
+			finishReason: preview.diagnostics?.finishReason ?? null,
 		});
 		if (preview.usesVision && preview.attachmentSnapshots) {
 			await this.assertAttachmentsCurrent(preview.attachmentSnapshots, 'write');
