@@ -78,7 +78,7 @@ Windows Audio Companion 是 Windows 用户在需要直接获取系统音频时�
 正式发布后，请从 [Lecture Workflow 官方 GitHub Release](https://github.com/Dorlment/Lecture-Workflow/releases) 手动下载与插件版本一致的：
 
 ```text
-lecture-workflow-windows-helper-win-x64-v0.1.0.zip
+lecture-workflow-windows-helper-win-x64-v0.1.1.zip
 ```
 
 Obsidian 默认的 Vault 配置目录名称通常是 `.obsidian`。如果你修改过 Vault 的配置目录名称，请在下列路径中使用实际配置目录；示例中的 `.obsidian` 不是强制固定名称。
@@ -111,7 +111,7 @@ lecture-workflow/
 不要形成重复的双层目录，例如：
 
 ```text
-companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.0/LectureWorkflow.AudioCompanion.Windows.exe
+companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.1/LectureWorkflow.AudioCompanion.Windows.exe
 ```
 
 当前 Helper 为 framework-dependent 构建，运行时同时需要兼容的 `Microsoft.NETCore.App 10.0` 和 `Microsoft.AspNetCore.App 10.0` x64 shared framework。仅安装「.NET 10 Desktop Runtime」不足以表达这一实际依赖。
