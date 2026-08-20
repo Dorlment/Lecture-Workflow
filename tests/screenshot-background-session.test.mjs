@@ -529,7 +529,12 @@ test('settings and status bar expose the runtime probe without persisting it', a
 	assert.match(settingsSource, /setButtonText\('使用当前笔记'\)/);
 	assert.match(settingsSource, /setButtonText\('开始监听'\)/);
 	assert.match(settingsSource, /setButtonText\('停止监听'\)/);
-	assert.match(settingsSource, /Snipaste Ctrl\+1 或 Windows Win\+Shift\+S/);
+	assert.match(settingsSource, /使用你习惯的截图工具进行截图/);
+	assert.match(settingsSource, /请确保截图结果会复制到系统剪贴板/);
+	assert.match(settingsSource, /自动检测新复制的图片并加入当前课堂时间线/);
+	assert.match(settingsSource, /不读取剪贴板文字，也不会自动上传图片/);
+	assert.match(settingsSource, /截图快捷键由你使用的截图工具或操作系统设置决定/);
+	assert.doesNotMatch(settingsSource, /Snipaste Ctrl\+1|Windows Win\+Shift\+S/);
 	assert.match(mainSource, /addStatusBarItem\(\)/);
 	assert.match(mainSource, /课堂监听中 · \$\{state\.targetName\} · 已保存 \$\{state\.savedCount\} 张/);
 	assert.doesNotMatch(dataSource, /screenshotBackground|listening|detectedCount/);

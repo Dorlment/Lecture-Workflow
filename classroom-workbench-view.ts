@@ -315,8 +315,12 @@ export class ClassroomWorkbenchView extends ItemView {
 
 		const companionCard = this.createCard('系统音频助手');
 		const audioCompanionStatus = summaryRow(companionCard, '当前状态');
-		const audioCompanionFrameCount = summaryRow(companionCard, '已处理帧数');
-		const companionVolume = companionCard.createDiv({
+		const companionDetails = companionCard.createEl('details', {
+			cls: 'lecture-workflow-workbench-details',
+		});
+		companionDetails.createEl('summary', { text: '详细状态' });
+		const audioCompanionFrameCount = summaryRow(companionDetails, '已处理帧数');
+		const companionVolume = companionDetails.createDiv({
 			cls: 'lecture-workflow-audio-volume',
 		});
 		const companionVolumeHeader = companionVolume.createDiv({
@@ -354,9 +358,15 @@ export class ClassroomWorkbenchView extends ItemView {
 		const realtimeAsrStatus = summaryRow(asrCard, '当前状态');
 		const realtimeAsrPartial = summaryRow(asrCard, '当前识别');
 		const realtimeAsrFinal = summaryRow(asrCard, '最近定稿');
-		const realtimeAsrDuration = summaryRow(asrCard, '已发送音频');
-		const asrDetails = asrCard.createEl('details');
-		asrDetails.createEl('summary', { text: '发送详细状态' });
+		const asrOverviewDetails = asrCard.createEl('details', {
+			cls: 'lecture-workflow-workbench-details',
+		});
+		asrOverviewDetails.createEl('summary', { text: '详细状态' });
+		const realtimeAsrDuration = summaryRow(asrOverviewDetails, '已发送音频');
+		const asrDetails = asrOverviewDetails.createEl('details', {
+			cls: 'lecture-workflow-workbench-details',
+		});
+		asrDetails.createEl('summary', { text: '开发者诊断' });
 		const realtimeAsrDiagnosticsEls = {
 			eventLoopLagCurrent: summaryRow(asrDetails, '事件循环当前延迟'),
 			eventLoopLagMax: summaryRow(asrDetails, '事件循环最大延迟'),
@@ -443,7 +453,7 @@ export class ClassroomWorkbenchView extends ItemView {
 			() => this.host.stopRealtimeAsr(),
 		);
 		asrCard.createEl('p', {
-			text: '实时文字仅保存在本次插件运行内存中，不写入笔记、不保存录音。',
+			text: '实时识别的定稿会自动追加到当前课堂笔记的「原始文字稿」，插件不保存录音。',
 			cls: 'lecture-workflow-workbench-help',
 		});
 

@@ -565,7 +565,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 		if (!controller) return;
 		const result = await controller.start();
 		if (result === 'configuration-error') {
-			new Notice('实时转写未启动：请先配置 Qwen API key、Workspace ID 和实时转写模型。');
+			new Notice('实时转写未配置。请先在 Lecture Workflow 设置中完成 Qwen 实时转写配置，然后重新开始课堂。');
 		}
 	}
 
@@ -709,6 +709,12 @@ export default class LectureWorkflowPlugin extends Plugin {
 		const isListening = classroomState.status === 'listening';
 		menu.addItem((item) =>
 			item
+				.setTitle('创建课堂笔记')
+				.setIcon('file-plus-2')
+				.onClick(() => this.openCreateLectureNoteModal()),
+		);
+		menu.addItem((item) =>
+			item
 				.setTitle(classroomSessionMenuTitle(classroomState))
 				.setIcon(isListening ? 'circle-stop' : 'radio-tower')
 				.onClick(() => this.toggleClassroomListening()),
@@ -721,13 +727,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 		);
 		menu.addItem((item) =>
 			item
-				.setTitle('创建课堂笔记')
-				.setIcon('file-plus-2')
-				.onClick(() => this.openCreateLectureNoteModal()),
-		);
-		menu.addItem((item) =>
-			item
-				.setTitle('AI 整理当前笔记')
+				.setTitle('AI 整理当前课堂笔记')
 				.setIcon('wand-sparkles')
 				.onClick(() => this.runAiWorkflow()),
 		);

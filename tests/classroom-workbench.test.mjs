@@ -188,10 +188,10 @@ test('the sole Ribbon menu and command both expose the workbench', async () => {
 	assert.ok(menu);
 	const titles = [...menu.matchAll(/setTitle\(([^\n]+)\)/g)].map((match) => match[1]);
 	assert.deepEqual(titles, [
+		"'创建课堂笔记'",
 		'classroomSessionMenuTitle(classroomState)',
 		"'打开课堂工作台'",
-		"'创建课堂笔记'",
-		"'AI 整理当前笔记'",
+		"'AI 整理当前课堂笔记'",
 	]);
 });
 
@@ -396,4 +396,29 @@ test('manifest declares the official revealLeaf compatibility floor', async () =
 	const manifest = JSON.parse(await readFile('manifest.json', 'utf8'));
 	assert.equal(manifest.minAppVersion, '1.7.2');
 	assert.equal(manifest.version, '1.0.0');
+});
+
+test('release hardening keeps primary classroom information visible and nests technical diagnostics', async () => {
+	const view = await readFile('classroom-workbench-view.ts', 'utf8');
+	assert.match(view, /const companionDetails = companionCard\.createEl\('details'/);
+	assert.match(view, /summaryRow\(companionDetails, '已处理帧数'\)/);
+	assert.match(view, /companionDetails\.createDiv\(\{[\s\S]*?lecture-workflow-audio-volume/);
+	assert.match(view, /const realtimeAsrDuration = summaryRow\(asrOverviewDetails, '已发送音频'\)/);
+	assert.match(view, /const asrDetails = asrOverviewDetails\.createEl\('details'/);
+	assert.match(view, /asrDetails\.createEl\('summary', \{ text: '开发者诊断' \}\)/);
+	assert.match(view, /summaryRow\(asrDetails, 'WebSocket 缓冲字节'\)/);
+	assert.match(view, /实时识别的定稿会自动追加到当前课堂笔记的「原始文字稿」，插件不保存录音。/);
+	assert.doesNotMatch(view, /实时文字仅保存在本次插件运行内存中，不写入笔记/);
+});
+
+test('release hardening uses one AI organization name and an actionable ASR setup message', async () => {
+	const [main, runtimeUi] = await Promise.all([
+		readFile('main.ts', 'utf8'),
+		readFile('realtime-asr-runtime-ui.ts', 'utf8'),
+	]);
+	assert.equal((main.match(/AI 整理当前课堂笔记/g) ?? []).length, 2);
+	assert.doesNotMatch(main, /AI 整理当前笔记/);
+	for (const source of [main, runtimeUi]) {
+		assert.match(source, /实时转写未配置。请先在 Lecture Workflow 设置中完成 Qwen 实时转写配置，然后重新开始课堂。/);
+	}
 });

@@ -121,6 +121,22 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		this.renderBackgroundScreenshotSettings(containerEl);
 
 		new Setting(containerEl).setName('AI 设置').setHeading();
+		new Setting(containerEl).setName('首次使用配置指南').setHeading();
+		containerEl.createEl('p', {
+			text: '1. 文字整理：配置 DeepSeek API Key，用于完整文字稿的最终结构化整理。',
+		});
+		containerEl.createEl('p', {
+			text: '2. 图片理解：如需课堂截图参与 AI 整理，启用「图片参与整理」并配置 Qwen。',
+		});
+		containerEl.createEl('p', {
+			text: '3. 实时转写：如需课堂语音实时转成文字，完成 Qwen 实时转写配置。',
+		});
+		containerEl.createEl('p', {
+			text: '4. 完成配置后：使用对应 Provider 的「测试连接」确认配置有效。',
+		});
+		containerEl.createEl('p', {
+			text: '如果只使用文字 AI 整理，不需要配置图片理解和实时转写。',
+		});
 		containerEl.createEl('p', {
 			text: 'API Key 保存在本地插件配置 data.json 中，未加密；请勿共享或提交至 Git。',
 			cls: 'lecture-workflow-secret-warning',
@@ -211,7 +227,10 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 			text: '日常上课可直接通过左侧 Lecture Workflow 图标启动或停止课堂监听；此处主要用于配置目标和查看详细状态。',
 		});
 		containerEl.createEl('p', {
-			text: '启动后可切换到网课页面，使用 Snipaste Ctrl+1 或 Windows Win+Shift+S 截图。插件只检测新复制的图片，不读取文字，也不会上传图片。',
+			text: '启动课堂监听后，可切换到网课或其他学习页面，使用你习惯的截图工具进行截图。请确保截图结果会复制到系统剪贴板，Lecture Workflow 会自动检测新复制的图片并加入当前课堂时间线。',
+		});
+		containerEl.createEl('p', {
+			text: '插件只读取监听期间新复制的图片，不读取剪贴板文字，也不会自动上传图片。截图快捷键由你使用的截图工具或操作系统设置决定。',
 		});
 
 		const statusSetting = new Setting(containerEl)
@@ -394,7 +413,7 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('启用图片参与整理')
-			.setDesc('默认关闭。只有启用后，后续视觉流程才允许取得视觉 Provider。')
+			.setDesc('可选功能，默认关闭。视觉模型只负责理解课堂截图，文字模型负责最终结构化整理。')
 			.addToggle((toggle) =>
 				toggle
 					.setValue(settings.enableVisionInput)
@@ -424,7 +443,7 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		if (settings.visionProvider === 'qwen') {
 			new Setting(containerEl)
 				.setName('Qwen 视觉模型')
-				.setDesc('仅用于视觉请求，不修改现有 Qwen 文字模型。')
+				.setDesc('只用于理解课堂图片，不负责最终课堂笔记生成，也不会修改现有 Qwen 文字模型。')
 				.addText((text) => {
 					text.inputEl.disabled = !settings.enableVisionInput;
 					text
@@ -460,9 +479,9 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 
 	private renderDeepSeekSettings(containerEl: HTMLElement, settings: LectureWorkflowSettings): void {
 		new Setting(containerEl).setName('DeepSeek').setHeading();
-		this.addSecretSetting(containerEl, 'API Key', settings.deepseek.apiKey, async (value) => {
+		this.addSecretSetting(containerEl, 'DeepSeek API Key', settings.deepseek.apiKey, async (value) => {
 			await this.updateSettings((next) => { next.deepseek.apiKey = value; });
-		});
+		}, '文字 AI 整理所需配置，用于完整文字稿的最终结构化整理。');
 		this.addTextSetting(containerEl, 'Base URL', settings.deepseek.baseUrl, async (value) => {
 			await this.updateSettings((next) => { next.deepseek.baseUrl = value.trim(); });
 		});
@@ -476,7 +495,7 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('Qwen / 阿里云百炼').setHeading();
 		this.addSecretSetting(containerEl, 'API Key', settings.qwen.apiKey, async (value) => {
 			await this.updateSettings((next) => { next.qwen.apiKey = value; });
-		});
+		}, '用于已启用的 Qwen 文字、图片理解或实时转写能力。');
 		new Setting(containerEl)
 			.setName('Region')
 			.setDesc('当前至少支持华北2（北京）。')
@@ -502,12 +521,15 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		});
 		this.addTextSetting(containerEl, 'Realtime ASR Model', settings.qwen.asrModel, async (value) => {
 			await this.updateSettings((next) => { next.qwen.asrModel = value.trim(); });
-		});
+		}, '只用于实时课堂转写；不使用实时转写时无需额外操作。');
 		this.addTestButton(containerEl, '测试 Qwen 连接', 'qwen');
 	}
 
 	private renderCustomSettings(containerEl: HTMLElement, settings: LectureWorkflowSettings): void {
-		new Setting(containerEl).setName('Custom OpenAI-compatible').setHeading();
+		new Setting(containerEl)
+			.setName('Custom OpenAI-compatible（高级）')
+			.setDesc('高级功能，适用于明确了解兼容接口的用户；普通用户无需配置。')
+			.setHeading();
 		this.addSecretSetting(containerEl, 'API Key', settings.customOpenAI.apiKey, async (value) => {
 			await this.updateSettings((next) => { next.customOpenAI.apiKey = value; });
 		});
@@ -535,8 +557,13 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		name: string,
 		value: string,
 		onChange: (value: string) => Promise<void>,
+		description?: string,
 	): void {
-		new Setting(containerEl).setName(name).addText((text) => {
+		const setting = new Setting(containerEl).setName(name);
+		if (description) {
+			setting.setDesc(description);
+		}
+		setting.addText((text) => {
 			text.inputEl.type = 'password';
 			text.setValue(value).onChange(onChange);
 		});
@@ -547,8 +574,13 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		name: string,
 		value: string,
 		onChange: (value: string) => Promise<void>,
+		description?: string,
 	): void {
-		new Setting(containerEl).setName(name).addText((text) => text.setValue(value).onChange(onChange));
+		const setting = new Setting(containerEl).setName(name);
+		if (description) {
+			setting.setDesc(description);
+		}
+		setting.addText((text) => text.setValue(value).onChange(onChange));
 	}
 
 	private addTestButton(containerEl: HTMLElement, name: string, id: TextProviderId): void {

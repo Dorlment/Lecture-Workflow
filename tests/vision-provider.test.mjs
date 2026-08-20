@@ -463,9 +463,25 @@ test('settings UI exposes independent vision controls, privacy text, and no Deep
 	assert.equal(byName('Qwen 视觉模型').value, 'qwen3-vl-plus');
 	assert.equal(byName('最大图片数量').value, '10');
 	assert.equal(byName('自定义 Provider 支持图片').type, 'toggle');
+	assert.match(byName('启用图片参与整理').desc, /可选功能/);
+	assert.match(byName('启用图片参与整理').desc, /视觉模型只负责理解课堂截图/);
+	assert.match(byName('Qwen 视觉模型').desc, /不负责最终课堂笔记生成/);
+	assert.match(byName('DeepSeek API Key').desc, /文字 AI 整理所需配置/);
+	assert.match(byName('Realtime ASR Model').desc, /只用于实时课堂转写/);
+	assert.match(byName('Custom OpenAI-compatible（高级）').desc, /普通用户无需配置/);
 	const privacy = process.__settingRecords.find((record) => record.type === 'paragraph' && record.text?.includes('公共图床'));
 	assert.match(privacy.text, /第三方模型服务商/);
 	assert.match(privacy.text, /额外 Token 或调用费用/);
+	const paragraphs = process.__settingRecords
+		.filter((record) => record.type === 'paragraph')
+		.map((record) => record.text)
+		.join('\n');
+	assert.match(paragraphs, /1\. 文字整理：配置 DeepSeek API Key/);
+	assert.match(paragraphs, /2\. 图片理解：如需课堂截图参与 AI 整理/);
+	assert.match(paragraphs, /3\. 实时转写：如需课堂语音实时转成文字/);
+	assert.match(paragraphs, /4\. 完成配置后：使用对应 Provider 的「测试连接」/);
+	assert.match(paragraphs, /只使用文字 AI 整理，不需要配置图片理解和实时转写/);
+	assert.match(paragraphs, /API Key 保存在本地插件配置 data\.json 中，未加密/);
 });
 
 test('settings save failure restores the previously persisted vision values', async () => {

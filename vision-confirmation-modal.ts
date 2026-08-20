@@ -31,9 +31,6 @@ export class VisionConfirmationModal extends Modal {
 		this.contentEl.createEl('p', {
 			text: `检测到 ${this.summary.imageCount} 张图片，原始总大小 ${formatByteSize(this.summary.totalBytes)}。`,
 		});
-		this.contentEl.createEl('p', {
-			text: `本次视觉 Provider：${this.summary.visionProviderName}；模型：${this.summary.model}。`,
-		});
 		if (this.summary.textProviderId === 'deepseek' && this.summary.visionProviderId === 'qwen') {
 			this.contentEl.createEl('p', {
 				text: '课堂图片将由 Qwen-VL 进行视觉理解，视觉结果将作为辅助上下文提供给文本模型；完整文字稿由文本模型负责最终结构化整理。',
@@ -49,7 +46,12 @@ export class VisionConfirmationModal extends Modal {
 		this.contentEl.createEl('p', {
 			text: '图片与文字稿将发送给所选第三方模型服务商，可能产生额外 Token 或调用费用。插件不会把图片上传到公共图床。',
 		});
-		const list = this.contentEl.createEl('ul');
+		const advancedDetails = this.contentEl.createEl('details');
+		advancedDetails.createEl('summary', { text: '高级信息' });
+		advancedDetails.createEl('p', {
+			text: `本次视觉 Provider：${this.summary.visionProviderName}；模型：${this.summary.model}。`,
+		});
+		const list = advancedDetails.createEl('ul');
 		for (const path of this.summary.vaultPaths) {
 			list.createEl('li', { text: path });
 		}
