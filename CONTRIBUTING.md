@@ -41,8 +41,9 @@ git diff --check
 Build and test the optional Windows Audio Companion from the repository root:
 
 ```powershell
-dotnet build companion/windows/LectureWorkflow.AudioCompanion.Windows.sln
-dotnet test --solution companion/windows/LectureWorkflow.AudioCompanion.Windows.sln
+dotnet restore companion/windows/LectureWorkflow.AudioCompanion.Windows.sln
+dotnet build companion/windows/LectureWorkflow.AudioCompanion.Windows.sln -c Release
+dotnet test --solution companion/windows/LectureWorkflow.AudioCompanion.Windows.sln -c Release
 ```
 
 The automated tests must use fake transports, fake capture sources, and synthetic PCM. Do not access real provider services or real WASAPI devices from automated tests.
@@ -56,7 +57,9 @@ The automated tests must use fake transports, fake capture sources, and syntheti
 - Preserve existing protocol and lifecycle contracts unless the pull request explicitly proposes and documents a compatible change.
 - Do not mix generated release artifacts with source changes.
 
-Before requesting review, run the relevant targeted tests and the full checks listed above.
+## Testing
+
+Before requesting review, run the relevant targeted tests and the full checks listed above. Tests must be deterministic, must not contact real AI providers, and must not access real audio devices or user data.
 
 ## Files that must not be committed
 
@@ -66,7 +69,7 @@ Do not commit:
 - private classroom notes, transcripts, screenshots, PCM, recordings, or other user content
 - `main.js` development copies from a Vault
 - Windows Helper publish output, EXE, DLL, PDB, ZIP, or checksum release artifacts
-- `bin/`, `obj/`, `TestResults/`, logs, dumps, caches, or temporary staging directories
+- `node_modules/`, `bin/`, `obj/`, `TestResults/`, logs, dumps, caches, or temporary staging directories
 - machine-specific absolute paths or editor-local configuration
 
 ## Scope and compatibility

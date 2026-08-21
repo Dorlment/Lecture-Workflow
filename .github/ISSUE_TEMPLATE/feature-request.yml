@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an improvement to Lecture Workflow.
+description: Suggest an improvement or new capability for Lecture Workflow.
 title: "[Feature]: "
 labels:
   - enhancement
@@ -30,6 +30,10 @@ body:
     attributes:
       label: Expected workflow
       description: Walk through how the feature would fit into a normal classroom workflow.
+      placeholder: |
+        1. Start ...
+        2. Choose ...
+        3. Review ...
     validations:
       required: true
 
@@ -62,12 +66,12 @@ body:
     id: additional-context
     attributes:
       label: Additional context
-      description: Optional. Add non-sensitive examples or mockups. Redact private classroom content, account details, local paths, and personal information.
+      description: Optional. Add non-sensitive screenshots, mockups, examples, or links. Redact private classroom content, account details, local paths, and personal information.
 
   - type: checkboxes
     id: privacy
     attributes:
       label: Privacy checklist
       options:
-        - label: I removed API keys, tokens, passwords, private note content, and other secrets from this request.
+        - label: I removed API keys, access tokens, passwords, private classroom or note content, and other secrets from this request.
           required: true
