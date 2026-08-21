@@ -1,0 +1,73 @@
+name: Feature request
+description: Suggest an improvement to Lecture Workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the learning workflow you want to improve. Do not include API keys, tokens, passwords, private classroom notes, or other secrets.
+
+  - type: textarea
+    id: problem-or-use-case
+    attributes:
+      label: Problem or use case
+      description: What problem are you trying to solve, and who would benefit?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you would like Lecture Workflow to provide.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-workflow
+    attributes:
+      label: Expected workflow
+      description: Walk through how the feature would fit into a normal classroom workflow.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      options:
+        - Classroom workflow
+        - Screenshots
+        - Realtime ASR
+        - Windows Audio Companion
+        - AI note organization
+        - Vision
+        - Providers
+        - Settings / onboarding
+        - User interface
+        - Export / Markdown
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Describe any workarounds or alternative designs you considered.
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Optional. Add non-sensitive examples or mockups. Redact private classroom content, account details, local paths, and personal information.
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy checklist
+      options:
+        - label: I removed API keys, tokens, passwords, private note content, and other secrets from this request.
+          required: true

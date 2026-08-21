@@ -185,6 +185,12 @@ Helper ZIP 应保留正式 `dotnet publish` 输出的全部必需运行依赖，
 - Audio Companion wire protocol：[`docs/audio-companion-protocol.md`](docs/audio-companion-protocol.md)
 - V0.1 能力边界：[`docs/v0.1-capability-boundaries.md`](docs/v0.1-capability-boundaries.md)
 
+## Feedback and contributions
+
+- Found a bug? Open a [Bug report](https://github.com/Dorlment/Lecture-Workflow/issues/new?template=bug-report.yml).
+- Have an idea? Open a [Feature request](https://github.com/Dorlment/Lecture-Workflow/issues/new?template=feature-request.yml).
+- Want to contribute code? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Lecture Workflow 使用 [MIT License](LICENSE)。随项目包含或分发的第三方组件遵循各自的许可证，详见 [Third-party notices](THIRD_PARTY_NOTICES.md)。

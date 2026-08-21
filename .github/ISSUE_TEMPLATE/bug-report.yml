@@ -1,0 +1,120 @@
+name: Bug report
+description: Report a reproducible problem with Lecture Workflow.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Lecture Workflow. Do not include API keys, tokens, passwords, private classroom notes, or other secrets.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Lecture Workflow version
+      description: The installed plugin version, for example 0.1.1.
+      placeholder: 0.1.1
+    validations:
+      required: true
+
+  - type: input
+    id: obsidian-version
+    attributes:
+      label: Obsidian version
+      description: The Obsidian desktop version where the problem occurs.
+      placeholder: 1.x.x
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected area
+      options:
+        - Installation / startup
+        - Classroom note
+        - Classroom monitoring
+        - Screenshot timeline
+        - Realtime ASR
+        - Windows Audio Companion
+        - AI text processing
+        - Qwen Vision
+        - DeepSeek
+        - Qwen / Alibaba Cloud Model Studio
+        - Custom OpenAI-compatible provider
+        - Workbench / UI
+        - Settings
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and any safe error code shown by the plugin.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: Describe what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that reproduces the problem.
+      placeholder: |
+        1. Open ...
+        2. Choose ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: relevant-configuration
+    attributes:
+      label: Relevant configuration
+      description: List only non-secret settings such as provider name, model name, feature toggles, and whether the optional Windows Helper is installed. Do NOT include API keys, tokens, passwords, Workspace IDs, full data.json contents, or other secrets.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Optional. Remove API keys, tokens, Authorization headers, private note content, transcript text, local paths, device identifiers, and other personal data before pasting logs.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Optional. Crop or redact student names, classroom content, account details, Vault paths, and other private information before uploading.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I reproduced this with the latest available Lecture Workflow release.
+          required: true
+        - label: I removed API keys, tokens, passwords, private note content, and other secrets from this report.
+          required: true
