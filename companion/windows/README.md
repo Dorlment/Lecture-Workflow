@@ -16,7 +16,7 @@ is never configured as an operating-system startup item or background service.
 
 ## Install the V0.1 helper manually
 
-After V0.1 is formally published, download the helper archive matching the plugin version from
+Download the helper archive matching the plugin version from
 the official Lecture Workflow GitHub Release:
 
 ```text
@@ -59,11 +59,11 @@ wrong and will not be detected:
 companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.1/LectureWorkflow.AudioCompanion.Windows.exe
 ```
 
-The current V0.1 publish configuration is framework-dependent. Its generated runtime configuration
+The published 0.1.1 archive is framework-dependent. Its generated runtime configuration
 requires compatible x64 installations of both `Microsoft.NETCore.App 10.0` and
 `Microsoft.AspNetCore.App 10.0`. Describing that requirement as only the ".NET 10 Desktop Runtime"
 is not accurate. A compatible .NET 10 SDK also supplies the required shared frameworks for
-development machines.
+development machines. The already-published 0.1.1 ZIP is not self-contained.
 
 After installation, restart or reload Lecture Workflow and start classroom listening. The plugin
 tries to launch the helper after the classroom session is established. Open the classroom
@@ -95,8 +95,10 @@ or production packaging flow.
 
 ## Run the probe
 
+The following commands run from the repository root.
+
 ```powershell
-dotnet run --project src/LectureWorkflow.AudioCompanion.Windows -- probe
+dotnet run --project companion/windows/src/LectureWorkflow.AudioCompanion.Windows -- probe
 ```
 
 Play audio through the current default output device. Press Ctrl+C to stop and release
@@ -111,17 +113,26 @@ the probe stops.
 ## Build and test
 
 ```powershell
-dotnet restore LectureWorkflow.AudioCompanion.Windows.sln
-dotnet build LectureWorkflow.AudioCompanion.Windows.sln
-dotnet test --solution LectureWorkflow.AudioCompanion.Windows.sln
-dotnet publish src/LectureWorkflow.AudioCompanion.Windows/LectureWorkflow.AudioCompanion.Windows.csproj -c Release --no-self-contained
+dotnet restore companion/windows/LectureWorkflow.AudioCompanion.Windows.sln
+dotnet build companion/windows/LectureWorkflow.AudioCompanion.Windows.sln
+dotnet test --project companion/windows/tests/LectureWorkflow.AudioCompanion.Tests/LectureWorkflow.AudioCompanion.Tests.csproj
+dotnet publish companion/windows/src/LectureWorkflow.AudioCompanion.Windows/LectureWorkflow.AudioCompanion.Windows.csproj -c Release --no-self-contained
 ```
 
-The publish command above reflects the current framework-dependent project configuration. Formal
-release packaging must use the complete publish output and omit PDB, source, test, log, and other
-development-only files. It must place `THIRD_PARTY_NOTICES.txt` beside the runtime files so the
-binary distribution carries the required license notices; the source repository does not track
-publish binaries.
+The command above builds the framework-dependent development helper. For a future Windows x64
+release with its own .NET runtime, run from the repository root:
+
+```powershell
+./companion/windows/scripts/package-audio-companion.ps1
+```
+
+This produces `release-artifacts/lecture-workflow-windows-helper-win-x64-v<plugin-version>.zip`
+and a matching `.sha256` file. The archive has `companion/windows/` at its root, so users extract
+it into the plugin directory. The script includes the complete self-contained publish output and
+`THIRD_PARTY_NOTICES.txt`, `DOTNET_LICENSE.txt`, and `DOTNET_THIRD_PARTY_NOTICES.txt`, while
+omitting development files. The source repository does not track
+release binaries. A self-contained release is larger and must be rebuilt when the bundled runtime
+needs a security update. Verify it on Windows without preinstalled .NET before publishing it.
 
 ## Run the protocol server
 
@@ -129,7 +140,7 @@ Provide a runtime-only unpadded Base64URL token through standard input. The serv
 immediately and keeps only the SHA-256 digest until the host stops. It never echoes the token.
 
 ```powershell
-dotnet run --project src/LectureWorkflow.AudioCompanion.Windows -- server --token-stdin
+dotnet run --project companion/windows/src/LectureWorkflow.AudioCompanion.Windows -- server --token-stdin
 ```
 
 The server listens only on IPv4 `ws://127.0.0.1:43127/v1/audio`. Although the TypeScript client
@@ -139,7 +150,7 @@ by this Windows implementation. It never binds a LAN address or `0.0.0.0`.
 For a device-free end-to-end protocol check:
 
 ```powershell
-dotnet run --project src/LectureWorkflow.AudioCompanion.Windows -- server-self-test
+dotnet run --project companion/windows/src/LectureWorkflow.AudioCompanion.Windows -- server-self-test
 ```
 
 The self-test uses a generated in-memory token and deterministic synthetic frames. It exercises
@@ -149,7 +160,7 @@ For an explicit Windows WASAPI end-to-end check, start the server in one termina
 following development client in another, entering the same token through standard input:
 
 ```powershell
-dotnet run --project src/LectureWorkflow.AudioCompanion.Windows -- server-test-client --token-stdin
+dotnet run --project companion/windows/src/LectureWorkflow.AudioCompanion.Windows -- server-test-client --token-stdin
 ```
 
 The client prints only frame counts and aggregate RMS. Ctrl+C requests STOP and waits for

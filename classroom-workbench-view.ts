@@ -44,6 +44,7 @@ export interface ClassroomWorkbenchHost {
 	stopSystemAudio(): Promise<void>;
 	startRealtimeAsr(): Promise<void>;
 	stopRealtimeAsr(): Promise<void>;
+	getAudioCompanionReleaseUrl(): string;
 	getDismissMode(): ClassroomWorkbenchDismissMode;
 	dismissWorkbench(): ClassroomWorkbenchDismissMode;
 }
@@ -87,6 +88,7 @@ interface ClassroomWorkbenchUi {
 	audioCompanionFrameCountEl: HTMLElement;
 	audioCompanionRmsEl: HTMLProgressElement;
 	audioCompanionRmsTextEl: HTMLElement;
+	audioCompanionSoundEl: HTMLElement;
 	audioCompanionErrorEl: HTMLElement;
 	startAudioCompanionButton: HTMLButtonElement;
 	stopAudioCompanionButton: HTMLButtonElement;
@@ -315,26 +317,33 @@ export class ClassroomWorkbenchView extends ItemView {
 
 		const companionCard = this.createCard('系统音频助手');
 		const audioCompanionStatus = summaryRow(companionCard, '当前状态');
-		const companionDetails = companionCard.createEl('details', {
-			cls: 'lecture-workflow-workbench-details',
-		});
-		companionDetails.createEl('summary', { text: '详细状态' });
-		const audioCompanionFrameCount = summaryRow(companionDetails, '已处理帧数');
-		const companionVolume = companionDetails.createDiv({
+		const audioCompanionSound = summaryRow(companionCard, '电脑声音');
+		const companionVolume = companionCard.createDiv({
 			cls: 'lecture-workflow-audio-volume',
 		});
 		const companionVolumeHeader = companionVolume.createDiv({
 			cls: 'lecture-workflow-audio-volume-header',
 		});
-		companionVolumeHeader.createSpan({ text: '实时 RMS' });
+		companionVolumeHeader.createSpan({ text: '实时音量' });
 		const audioCompanionRmsText = companionVolumeHeader.createSpan({ text: '0%' });
 		const audioCompanionRms = companionVolume.createEl('progress');
 		audioCompanionRms.max = 1;
 		audioCompanionRms.value = 0;
-		audioCompanionRms.setAttr('aria-label', '系统音频实时 RMS：0%');
+		audioCompanionRms.setAttr('aria-label', '系统音频实时音量：0%');
+		const companionDetails = companionCard.createEl('details', {
+			cls: 'lecture-workflow-workbench-details',
+		});
+		companionDetails.createEl('summary', { text: '详细状态' });
+		const audioCompanionFrameCount = summaryRow(companionDetails, '已处理帧数');
 		const audioCompanionError = companionCard.createEl('p', {
 			text: '',
 			cls: 'lecture-workflow-workbench-help lecture-workflow-workbench-error',
+		});
+		const companionHelp = companionCard.createEl('p', { cls: 'lecture-workflow-workbench-help' });
+		companionHelp.createEl('a', {
+			text: '下载匹配版本的音频助手与查看安装说明',
+			href: this.host.getAudioCompanionReleaseUrl(),
+			attr: { target: '_blank', rel: 'noopener noreferrer' },
 		});
 		const companionActions = companionCard.createDiv({
 			cls: 'lecture-workflow-workbench-actions lecture-workflow-workbench-actions-two',
@@ -350,7 +359,7 @@ export class ClassroomWorkbenchView extends ItemView {
 			() => this.host.stopSystemAudio(),
 		);
 		companionCard.createEl('p', {
-			text: '系统音频仅在本机实时处理，不保存、不上传、不转写。',
+			text: '助手在本机捕获声音；启用实时转写后，插件会向配置的 Qwen 服务发送音频。插件不保存录音。',
 			cls: 'lecture-workflow-workbench-help',
 		});
 
@@ -589,6 +598,7 @@ export class ClassroomWorkbenchView extends ItemView {
 			audioCompanionFrameCountEl: audioCompanionFrameCount,
 			audioCompanionRmsEl: audioCompanionRms,
 			audioCompanionRmsTextEl: audioCompanionRmsText,
+			audioCompanionSoundEl: audioCompanionSound,
 			audioCompanionErrorEl: audioCompanionError,
 			startAudioCompanionButton,
 			stopAudioCompanionButton,
@@ -735,7 +745,12 @@ export class ClassroomWorkbenchView extends ItemView {
 		ui.audioCompanionRmsEl.value = state.rms;
 		const rmsPercentage = Math.round(state.rms * 100);
 		ui.audioCompanionRmsTextEl.setText(`${rmsPercentage}%`);
-		ui.audioCompanionRmsEl.setAttr('aria-label', `系统音频实时 RMS：${rmsPercentage}%`);
+		ui.audioCompanionRmsEl.setAttr('aria-label', `系统音频实时音量：${rmsPercentage}%`);
+		ui.audioCompanionSoundEl.setText(state.status !== 'capturing'
+			? '等待启动系统音频'
+			: state.rms > 0.001
+				? '已检测到声音'
+				: '暂未检测到声音，请播放课程声音并检查 Windows 默认输出设备');
 		ui.audioCompanionErrorEl.setText(presentation.errorMessage);
 		ui.audioCompanionErrorEl.toggleClass('is-hidden', !presentation.errorMessage);
 		ui.startAudioCompanionButton.setText(presentation.startLabel);

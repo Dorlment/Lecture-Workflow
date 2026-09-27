@@ -11,6 +11,7 @@ export const QWEN_DEFAULT_ASR_MODEL = 'qwen-audio-3.0-asr-flash-streaming';
 
 export const DEFAULT_SETTINGS: LectureWorkflowSettings = {
 	notesFolder: '课堂笔记',
+	preferredWorkflow: 'text',
 	setupMode: 'recommended',
 	temperature: 0.3,
 	requestTimeoutMs: 150_000,
@@ -46,6 +47,9 @@ export function normalizeSettings(
 	return {
 		...DEFAULT_SETTINGS,
 		...saved,
+		preferredWorkflow: saved.preferredWorkflow === 'vision' || saved.preferredWorkflow === 'audio'
+			? saved.preferredWorkflow
+			: saved.enableVisionInput ? 'vision' : 'text',
 		enableVisionInput: typeof saved.enableVisionInput === 'boolean'
 			? saved.enableVisionInput
 			: DEFAULT_SETTINGS.enableVisionInput,

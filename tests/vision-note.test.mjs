@@ -490,6 +490,7 @@ test('old settings are migrated with vision defaults and nested provider default
 		customOpenAI: { baseUrl: 'https://example.com' },
 	});
 	assert.equal(settings.enableVisionInput, false);
+	assert.equal(settings.preferredWorkflow, 'text');
 	assert.equal(settings.visionProvider, 'qwen');
 	assert.equal(settings.qwen.visionModel, 'qwen3-vl-plus');
 	assert.equal(settings.customOpenAI.supportsVision, false);
@@ -507,6 +508,7 @@ test('vision settings preserve valid values and normalize maxVisionImages into 1
 		customOpenAI: { supportsVision: true },
 	});
 	assert.equal(configured.enableVisionInput, true);
+	assert.equal(configured.preferredWorkflow, 'vision');
 	assert.equal(configured.visionProvider, 'custom');
 	assert.equal(configured.customOpenAI.supportsVision, true);
 });

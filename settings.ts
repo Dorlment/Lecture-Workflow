@@ -102,6 +102,7 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 
 	private renderSettings(containerEl: HTMLElement): void {
 		const settings = this.lectureWorkflowPlugin.settings;
+		this.renderSetupGuide(containerEl, settings.preferredWorkflow);
 		new Setting(containerEl).setName('基本设置').setHeading();
 
 		new Setting(containerEl)
@@ -118,47 +119,35 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		this.renderBackgroundScreenshotSettings(containerEl);
-
 		new Setting(containerEl).setName('AI 设置').setHeading();
-		new Setting(containerEl).setName('首次使用配置指南').setHeading();
-		containerEl.createEl('p', {
-			text: '1. 文字整理：配置 DeepSeek API Key，用于完整文字稿的最终结构化整理。',
-		});
-		containerEl.createEl('p', {
-			text: '2. 图片理解：如需课堂截图参与 AI 整理，启用「图片参与整理」并配置 Qwen。',
-		});
-		containerEl.createEl('p', {
-			text: '3. 实时转写：如需课堂语音实时转成文字，完成 Qwen 实时转写配置。',
-		});
-		containerEl.createEl('p', {
-			text: '4. 完成配置后：使用对应 Provider 的「测试连接」确认配置有效。',
-		});
-		containerEl.createEl('p', {
-			text: '如果只使用文字 AI 整理，不需要配置图片理解和实时转写。',
-		});
 		containerEl.createEl('p', {
 			text: 'API Key 保存在本地插件配置 data.json 中，未加密；请勿共享或提交至 Git。',
 			cls: 'lecture-workflow-secret-warning',
 		});
 
-		new Setting(containerEl)
-			.setName('配置模式')
-			.setDesc('推荐模式：DeepSeek 处理文字；Qwen 为后续视觉和语音能力预留。')
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOption('simple', '简易模式（Qwen）')
-					.addOption('recommended', '推荐模式（DeepSeek + Qwen）')
-					.addOption('advanced', '高级模式')
-					.setValue(settings.setupMode)
-					.onChange(async (value) => {
-						await this.updateSettings((next) => {
-							next.setupMode = value as LectureWorkflowSettings['setupMode'];
-						}, true);
-					}),
-			);
+		if (settings.preferredWorkflow !== 'audio') {
+			new Setting(containerEl)
+				.setName('配置模式')
+				.setDesc('简易模式使用 Qwen 整理文字；推荐模式使用 DeepSeek 整理文字。视觉和实时转写服务分别配置。')
+				.addDropdown((dropdown) =>
+					dropdown
+						.addOption('simple', '简易模式（Qwen）')
+						.addOption('recommended', '推荐模式（DeepSeek + Qwen）')
+						.addOption('advanced', '高级模式')
+						.setValue(settings.setupMode)
+						.onChange(async (value) => {
+							await this.updateSettings((next) => {
+								next.setupMode = value as LectureWorkflowSettings['setupMode'];
+							}, true);
+						}),
+				);
+		}
 
-		new Setting(containerEl)
+		const advancedSettings = containerEl.createEl('details', {
+			cls: 'lecture-workflow-workbench-details',
+		});
+		advancedSettings.createEl('summary', { text: '高级设置：模型参数与自定义服务' });
+		new Setting(advancedSettings)
 			.setName('Temperature')
 			.setDesc('控制输出随机性，范围 0～2。')
 			.addSlider((slider) =>
@@ -172,7 +161,7 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(containerEl)
+		new Setting(advancedSettings)
 			.setName('请求超时（秒）')
 			.setDesc('至少 1 秒；长文字稿建议 120 秒或更高。使用代理/VPN 时可能影响部分供应商连接。')
 			.addText((text) => {
@@ -193,11 +182,13 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 		const registry = new ProviderRegistry(settings, new ObsidianHttpClient());
 		const activeProvider = registry.getActiveTextProvider();
 		const validation = activeProvider.validate();
-		new Setting(containerEl)
-			.setName('当前文字提供商状态')
-			.setDesc(`${activeProvider.displayName}：${validation.length === 0 ? '配置完整' : validation.join(' ')}`);
+		if (settings.preferredWorkflow !== 'audio') {
+			new Setting(containerEl)
+				.setName('当前文字提供商状态')
+				.setDesc(`${activeProvider.displayName}：${validation.length === 0 ? '配置完整' : validation.join(' ')}`);
+		}
 
-		new Setting(containerEl)
+		new Setting(advancedSettings)
 			.setName('高级模式文字提供商')
 			.setDesc('仅控制高级模式下的文字 Provider，不影响独立的视觉 Provider。')
 			.addDropdown((dropdown) =>
@@ -213,11 +204,77 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		this.renderVisionSettings(containerEl, settings);
+		if (settings.preferredWorkflow === 'vision' || settings.enableVisionInput) {
+			this.renderVisionSettings(containerEl, settings);
+		}
+		const activeTextProvider = registry.getActiveTextProviderId();
+		if (settings.preferredWorkflow !== 'audio' && activeTextProvider === 'deepseek') {
+			this.renderDeepSeekSettings(containerEl, settings);
+		}
+		if (settings.preferredWorkflow === 'audio'
+			|| activeTextProvider === 'qwen'
+			|| (settings.enableVisionInput && settings.visionProvider === 'qwen')) {
+			this.renderQwenSettings(containerEl, settings);
+		}
+		const customProviderIsActive = (settings.preferredWorkflow !== 'audio' && activeTextProvider === 'custom')
+			|| (settings.enableVisionInput && settings.visionProvider === 'custom');
+		this.renderCustomSettings(customProviderIsActive ? containerEl : advancedSettings, settings);
+		this.renderBackgroundScreenshotSettings(containerEl);
+	}
 
-		this.renderDeepSeekSettings(containerEl, settings);
-		this.renderQwenSettings(containerEl, settings);
-		this.renderCustomSettings(containerEl, settings);
+	private renderSetupGuide(containerEl: HTMLElement, setupPath: LectureWorkflowSettings['preferredWorkflow']): void {
+		new Setting(containerEl).setName('开始使用').setHeading();
+		new Setting(containerEl)
+			.setName('这次想做什么？')
+			.setDesc('按用途显示配置；切换用途不会删除或关闭已经启用的功能。')
+			.addDropdown((dropdown) => dropdown
+				.addOption('text', '整理文字稿')
+				.addOption('vision', '整理文字稿和截图')
+				.addOption('audio', '转写电脑播放的课程声音')
+				.setValue(setupPath)
+				.onChange(async (value) => {
+					await this.updateSettings((next) => {
+						next.preferredWorkflow = value as LectureWorkflowSettings['preferredWorkflow'];
+					}, true);
+				}));
+		const instructions: Record<LectureWorkflowSettings['preferredWorkflow'], string> = {
+			text: '填写下方文字服务的 API Key，测试连接，然后在笔记中运行「AI 整理当前课堂笔记」。不需要音频助手。',
+			vision: '先配置文字服务，再启用图片参与整理并配置视觉服务。开始课堂监听后，把截图复制到剪贴板。',
+			audio: '配置 Qwen 实时转写并安装 Windows 音频助手。打开课堂笔记并开始课堂监听，播放课程声音后在课堂工作台检查音量和识别文字。字段已填写不代表实时转写已连接。',
+		};
+		containerEl.createEl('p', { text: instructions[setupPath] });
+		if (setupPath !== 'vision' && this.lectureWorkflowPlugin.settings.enableVisionInput) {
+			containerEl.createEl('p', {
+				text: '图片参与整理仍已启用。若这次只需要文字，可在下方关闭该功能。',
+				cls: 'lecture-workflow-workbench-help',
+			});
+		}
+		if (setupPath !== 'audio') return;
+		const version = this.lectureWorkflowPlugin.manifest.version;
+		const releaseUrl = `https://github.com/Dorlment/Lecture-Workflow/releases/tag/${encodeURIComponent(version)}`;
+		const link = containerEl.createEl('p');
+		link.createEl('a', { text: `打开 ${version} 版音频助手下载页`, href: releaseUrl, attr: { target: '_blank', rel: 'noopener noreferrer' } });
+		new Setting(containerEl)
+			.setName('复制音频助手安装目录')
+			.setDesc('把与插件版本相同的 zip 解压到该目录；zip 内应直接包含 companion/windows 文件夹。')
+			.addButton((button) => button.setButtonText('复制路径').onClick(async () => {
+				const adapter: unknown = this.app.vault.adapter;
+				const pluginDir = this.lectureWorkflowPlugin.manifest.dir;
+				if (!pluginDir || !hasFullPath(adapter)) {
+					new Notice('当前环境无法获取插件安装目录。');
+					return;
+				}
+				try {
+					await navigator.clipboard.writeText(adapter.getFullPath(pluginDir));
+					new Notice('已复制插件安装目录。');
+				} catch {
+					new Notice('复制失败，请在项目说明的安装章节查看目录。');
+				}
+			}));
+		containerEl.createEl('p', {
+			text: '音频助手只负责本机系统收音；开始实时转写后，音频会发送到配置的 Qwen 服务。插件不保存录音。',
+			cls: 'lecture-workflow-workbench-help',
+		});
 	}
 
 	private renderBackgroundScreenshotSettings(containerEl: HTMLElement): void {
@@ -479,13 +536,20 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 
 	private renderDeepSeekSettings(containerEl: HTMLElement, settings: LectureWorkflowSettings): void {
 		new Setting(containerEl).setName('DeepSeek').setHeading();
+		containerEl.createEl('p').createEl('a', {
+			text: '查看 DeepSeek 官方 API 与密钥说明',
+			href: 'https://api-docs.deepseek.com/api/deepseek-api/',
+			attr: { target: '_blank', rel: 'noopener noreferrer' },
+		});
 		this.addSecretSetting(containerEl, 'DeepSeek API Key', settings.deepseek.apiKey, async (value) => {
 			await this.updateSettings((next) => { next.deepseek.apiKey = value; });
 		}, '文字 AI 整理所需配置，用于完整文字稿的最终结构化整理。');
-		this.addTextSetting(containerEl, 'Base URL', settings.deepseek.baseUrl, async (value) => {
+		const deepSeekAdvanced = containerEl.createEl('details');
+		deepSeekAdvanced.createEl('summary', { text: '高级：DeepSeek 地址与模型' });
+		this.addTextSetting(deepSeekAdvanced, 'Base URL', settings.deepseek.baseUrl, async (value) => {
 			await this.updateSettings((next) => { next.deepseek.baseUrl = value.trim(); });
 		});
-		this.addTextSetting(containerEl, 'Model', settings.deepseek.model, async (value) => {
+		this.addTextSetting(deepSeekAdvanced, 'Model', settings.deepseek.model, async (value) => {
 			await this.updateSettings((next) => { next.deepseek.model = value.trim(); });
 		});
 		this.addTestButton(containerEl, '测试 DeepSeek 连接', 'deepseek');
@@ -493,36 +557,62 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 
 	private renderQwenSettings(containerEl: HTMLElement, settings: LectureWorkflowSettings): void {
 		new Setting(containerEl).setName('Qwen / 阿里云百炼').setHeading();
+		let asrStatus: Setting | null = null;
+		const help = containerEl.createEl('p');
+		help.createEl('a', {
+			text: '查看百炼密钥获取方法',
+			href: 'https://help.aliyun.com/zh/model-studio/get-api-key',
+			attr: { target: '_blank', rel: 'noopener noreferrer' },
+		});
+		help.createSpan({ text: ' · ' });
+		help.createEl('a', {
+			text: '查找 Workspace ID',
+			href: 'https://help.aliyun.com/zh/model-studio/obtain-the-app-id-and-workspace-id',
+			attr: { target: '_blank', rel: 'noopener noreferrer' },
+		});
 		this.addSecretSetting(containerEl, 'API Key', settings.qwen.apiKey, async (value) => {
 			await this.updateSettings((next) => { next.qwen.apiKey = value; });
+			asrStatus?.setDesc(asrConfigurationStatus(this.lectureWorkflowPlugin.settings));
 		}, '用于已启用的 Qwen 文字、图片理解或实时转写能力。');
 		new Setting(containerEl)
+			.setName('Workspace ID')
+			.setDesc('百炼工作空间 ID；使用实时转写时必须填写。')
+			.addText((text) => {
+				text.setValue(settings.qwen.workspaceId).onChange(async (value) => {
+					await this.updateSettings((next) => { next.qwen.workspaceId = value.trim(); });
+					asrStatus?.setDesc(asrConfigurationStatus(this.lectureWorkflowPlugin.settings));
+				});
+			});
+		if (settings.preferredWorkflow === 'audio') {
+			asrStatus = new Setting(containerEl)
+				.setName('实时转写配置状态')
+				.setDesc(asrConfigurationStatus(settings));
+		}
+		const qwenAdvanced = containerEl.createEl('details');
+		qwenAdvanced.createEl('summary', { text: '高级：Qwen 区域、地址与模型' });
+		new Setting(qwenAdvanced)
 			.setName('Region')
 			.setDesc('当前至少支持华北2（北京）。')
 			.addDropdown((dropdown) =>
 				dropdown.addOption('cn-beijing', '华北2（北京）').setValue(settings.qwen.region),
 			);
-		new Setting(containerEl)
-			.setName('Workspace ID')
-			.addText((text) => {
-				text.setValue(settings.qwen.workspaceId).onChange(async (value) => {
-					await this.updateSettings((next) => { next.qwen.workspaceId = value.trim(); }, true);
-				});
-			});
-		new Setting(containerEl)
+		new Setting(qwenAdvanced)
 			.setName('API base URL')
 			.setDesc('根据 region 和 Workspace ID 自动生成。')
 			.addText((text) => {
 				text.setValue(buildQwenBaseUrl(settings.qwen.region, settings.qwen.workspaceId));
 				text.inputEl.readOnly = true;
 			});
-		this.addTextSetting(containerEl, 'Text Model', settings.qwen.model, async (value) => {
+		this.addTextSetting(qwenAdvanced, 'Text Model', settings.qwen.model, async (value) => {
 			await this.updateSettings((next) => { next.qwen.model = value.trim(); });
 		});
-		this.addTextSetting(containerEl, 'Realtime ASR Model', settings.qwen.asrModel, async (value) => {
+		this.addTextSetting(qwenAdvanced, 'Realtime ASR Model', settings.qwen.asrModel, async (value) => {
 			await this.updateSettings((next) => { next.qwen.asrModel = value.trim(); });
+			asrStatus?.setDesc(asrConfigurationStatus(this.lectureWorkflowPlugin.settings));
 		}, '只用于实时课堂转写；不使用实时转写时无需额外操作。');
-		this.addTestButton(containerEl, '测试 Qwen 连接', 'qwen');
+		if (settings.preferredWorkflow !== 'audio') {
+			this.addTestButton(containerEl, '测试 Qwen 文字连接', 'qwen');
+		}
 	}
 
 	private renderCustomSettings(containerEl: HTMLElement, settings: LectureWorkflowSettings): void {
@@ -633,6 +723,23 @@ export class LectureWorkflowSettingTab extends PluginSettingTab {
 
 function cloneSettings(settings: LectureWorkflowSettings): LectureWorkflowSettings {
 	return JSON.parse(JSON.stringify(settings)) as LectureWorkflowSettings;
+}
+
+function hasFullPath(value: unknown): value is { getFullPath(path: string): string } {
+	return !!value && typeof value === 'object'
+		&& 'getFullPath' in value
+		&& typeof value.getFullPath === 'function';
+}
+
+function asrConfigurationStatus(settings: LectureWorkflowSettings): string {
+	const missing = [
+		!settings.qwen.apiKey.trim() && 'API Key',
+		!settings.qwen.workspaceId.trim() && 'Workspace ID',
+		!settings.qwen.asrModel.trim() && 'Realtime ASR Model',
+	].filter(Boolean);
+	return missing.length > 0
+		? `还需填写：${missing.join('、')}`
+		: '必要字段已填写。开始课堂监听并播放课程声音后，在工作台确认是否出现识别文字。';
 }
 
 function backgroundScreenshotStateLabel(state: ScreenshotBackgroundState): string {

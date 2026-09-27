@@ -7,6 +7,7 @@ import type {
 
 export interface LectureWorkflowSettings {
 	notesFolder: string;
+	preferredWorkflow: 'text' | 'vision' | 'audio';
 	setupMode: SetupMode;
 	temperature: number;
 	requestTimeoutMs: number;

@@ -146,8 +146,8 @@ test('runtime UI maps all statuses, controls, and safe stable remote errors', ()
 	const helperUnavailable = audioCompanionRuntimeUiState(runtimeState('helper-unavailable', {
 		errorCode: 'helper-unavailable',
 	}), true);
-	assert.match(helperUnavailable.errorMessage, /手动下载与当前插件版本一致的 Windows Helper/);
-	assert.match(helperUnavailable.errorMessage, /<Vault>\/.obsidian\/plugins\/lecture-workflow\/companion\/windows\//);
+	assert.match(helperUnavailable.errorMessage, /下载与插件版本一致的 ZIP/);
+	assert.match(helperUnavailable.errorMessage, /ZIP 内的 companion 文件夹解压到插件安装目录/);
 	assert.doesNotMatch(helperUnavailable.errorMessage, /自动下载|自动安装|开发运行文件/);
 });
 

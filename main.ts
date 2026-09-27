@@ -745,6 +745,8 @@ export default class LectureWorkflowPlugin extends Plugin {
 				stopSystemAudio: () => this.stopAudioCompanionSession(),
 				startRealtimeAsr: () => this.startRealtimeAsrSession(),
 				stopRealtimeAsr: () => this.stopRealtimeAsrSession(),
+				getAudioCompanionReleaseUrl: () =>
+					`https://github.com/Dorlment/Lecture-Workflow/releases/tag/${encodeURIComponent(this.manifest.version)}`,
 				getDismissMode: () => getClassroomWorkbenchDismissMode(
 					this.app.workspace.rightSplit,
 				),

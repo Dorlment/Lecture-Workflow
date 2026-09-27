@@ -117,13 +117,14 @@ test('plugin owns one runtime-only audio companion and disposes it on unload', a
 test('workbench shows companion runtime status, metrics, and explicit controls', async () => {
 	const workbench = await readFile('classroom-workbench-view.ts', 'utf8');
 	assert.match(workbench, /createCard\('系统音频助手'\)/);
-	assert.match(workbench, /系统音频仅在本机实时处理，不保存、不上传、不转写。/);
+	assert.match(workbench, /启用实时转写后，插件会向配置的 Qwen 服务发送音频。插件不保存录音。/);
 	const card = workbench.match(/const companionCard[\s\S]*?const audioCard/)?.[0];
 	assert.ok(card);
 	assert.match(card, /'启动系统音频'/);
 	assert.match(card, /'停止系统音频'/);
 	assert.match(card, /已处理帧数/);
-	assert.match(card, /实时 RMS/);
+	assert.match(card, /实时音量/);
+	assert.match(card, /下载匹配版本的音频助手与查看安装说明/);
 	assert.doesNotMatch(card, /'开始录制'|'上传音频'|'开始转写'/);
 });
 
@@ -392,7 +393,7 @@ test('audio tests never add a default shortcut or alter the screenshot toggle co
 	assert.match(main, /classroomSessionController\?\.getState\(\)\.status === 'listening'/);
 });
 
-test('release metadata declares v0.1.1, preserves history, and requires the desktop runtime', async () => {
+test('release metadata declares v0.1.2, preserves history, and requires the desktop runtime', async () => {
 	const [manifest, packageJson, packageLock, versions] = await Promise.all([
 		readFile('manifest.json', 'utf8').then(JSON.parse),
 		readFile('package.json', 'utf8').then(JSON.parse),
@@ -400,18 +401,19 @@ test('release metadata declares v0.1.1, preserves history, and requires the desk
 		readFile('versions.json', 'utf8').then(JSON.parse),
 	]);
 	assert.equal(manifest.minAppVersion, '1.7.2');
-	assert.equal(manifest.version, '0.1.1');
+	assert.equal(manifest.version, '0.1.2');
 	assert.equal(manifest.isDesktopOnly, true);
 	assert.equal(manifest.description, 'Turns classroom transcripts, screenshots, and realtime speech into structured study notes.');
 	assert.doesNotMatch(manifest.description, /Obsidian/u);
 	assert.match(manifest.description, /[.!?]$/u);
-	assert.equal(packageJson.version, '0.1.1');
+	assert.equal(packageJson.version, '0.1.2');
 	assert.equal(packageJson.description, manifest.description);
-	assert.equal(packageLock.version, '0.1.1');
-	assert.equal(packageLock.packages[''].version, '0.1.1');
+	assert.equal(packageLock.version, '0.1.2');
+	assert.equal(packageLock.packages[''].version, '0.1.2');
 	assert.deepEqual(versions, {
 		'0.1.0': '1.7.2',
 		'0.1.1': '1.7.2',
+		'0.1.2': '1.7.2',
 	});
 });
 
@@ -463,7 +465,7 @@ test('release hardening keeps primary classroom information visible and nests te
 	const view = await readFile('classroom-workbench-view.ts', 'utf8');
 	assert.match(view, /const companionDetails = companionCard\.createEl\('details'/);
 	assert.match(view, /summaryRow\(companionDetails, '已处理帧数'\)/);
-	assert.match(view, /companionDetails\.createDiv\(\{[\s\S]*?lecture-workflow-audio-volume/);
+	assert.match(view, /companionCard\.createDiv\(\{[\s\S]*?lecture-workflow-audio-volume/);
 	assert.match(view, /const realtimeAsrDuration = summaryRow\(asrOverviewDetails, '已发送音频'\)/);
 	assert.match(view, /const asrDetails = asrOverviewDetails\.createEl\('details'/);
 	assert.match(view, /asrDetails\.createEl\('summary', \{ text: '开发者诊断' \}\)/);

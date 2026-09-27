@@ -447,14 +447,15 @@ function resetSettingsUiMocks() {
 		empty() {},
 		createEl(_tag, options) {
 			process.__settingRecords.push({ type: 'paragraph', text: options?.text, cls: options?.cls });
-			return {};
+			return this;
 		},
+		createSpan() { return this; },
 	};
 }
 
 test('settings UI exposes independent vision controls, privacy text, and no DeepSeek visual option', () => {
 	resetSettingsUiMocks();
-	const plugin = { settings: registrySettings(), async saveSettings() {} };
+	const plugin = { settings: registrySettings({ preferredWorkflow: 'vision' }), async saveSettings() {} };
 	const tab = new LectureWorkflowSettingTab({}, plugin);
 	tab.display();
 	const byName = (name) => process.__settingRecords.find((record) => record.name === name);
@@ -476,12 +477,31 @@ test('settings UI exposes independent vision controls, privacy text, and no Deep
 		.filter((record) => record.type === 'paragraph')
 		.map((record) => record.text)
 		.join('\n');
-	assert.match(paragraphs, /1\. 文字整理：配置 DeepSeek API Key/);
-	assert.match(paragraphs, /2\. 图片理解：如需课堂截图参与 AI 整理/);
-	assert.match(paragraphs, /3\. 实时转写：如需课堂语音实时转成文字/);
-	assert.match(paragraphs, /4\. 完成配置后：使用对应 Provider 的「测试连接」/);
-	assert.match(paragraphs, /只使用文字 AI 整理，不需要配置图片理解和实时转写/);
+	assert.match(paragraphs, /先配置文字服务，再启用图片参与整理并配置视觉服务/);
 	assert.match(paragraphs, /API Key 保存在本地插件配置 data\.json 中，未加密/);
+});
+
+test('switching the setup path keeps existing provider credentials and shows the relevant controls', async () => {
+	resetSettingsUiMocks();
+	const plugin = {
+		manifest: { version: '0.1.2', dir: 'custom-config/plugins/lecture-workflow' },
+		settings: registrySettings({ preferredWorkflow: 'text', enableVisionInput: false }),
+		async saveSettings() {},
+	};
+	const tab = new LectureWorkflowSettingTab({}, plugin);
+	tab.display();
+	const workflowSelector = process.__settingRecords.find((record) => record.name === '这次想做什么？');
+	assert.equal(workflowSelector.value, 'text');
+	await workflowSelector.onChange('audio');
+	assert.equal(plugin.settings.preferredWorkflow, 'audio');
+	assert.equal(plugin.settings.deepseek.apiKey, 'unit-test-key');
+	assert.ok(process.__settingRecords.some((record) => record.name === 'Realtime ASR Model'));
+	assert.equal(process.__settingRecords.some((record) => record.name === '启用图片参与整理'), false);
+	const audioSelector = process.__settingRecords.findLast((record) => record.name === '这次想做什么？');
+	await audioSelector.onChange('vision');
+	assert.equal(plugin.settings.preferredWorkflow, 'vision');
+	assert.ok(process.__settingRecords.some((record) => record.name === '启用图片参与整理'));
+	assert.equal(plugin.settings.qwen.apiKey, 'unit-test-key');
 });
 
 test('settings save failure restores the previously persisted vision values', async () => {

@@ -62,11 +62,11 @@ export function runtimeErrorMessage(
 	}
 	const messages: Partial<Record<AudioCompanionRuntimeLocalErrorCode, string>> = {
 		'unsupported-runtime': '系统音频助手目前仅支持 Obsidian Windows 桌面端。',
-		'helper-unavailable': '未检测到 Windows Audio Companion。请从 Lecture Workflow 官方 GitHub Release 手动下载与当前插件版本一致的 Windows Helper，解压到 <Vault>/.obsidian/plugins/lecture-workflow/companion/windows/ 后重新加载插件。',
+		'helper-unavailable': '未检测到 Windows Audio Companion。请使用下方链接下载与插件版本一致的 ZIP，将 ZIP 内的 companion 文件夹解压到插件安装目录后重新加载插件。',
 		'session-unavailable': '请先启动课堂监听，再启动系统音频。',
 		'token-generation-failed': '无法安全初始化音频助手身份验证。',
-		'launch-failed': '无法启动 Windows 音频助手。',
-		'child-exited': 'Windows 音频助手已意外退出。',
+		'launch-failed': '无法启动 Windows 音频助手。请确认 ZIP 已完整解压到插件安装目录，并检查 Windows 是否阻止了该程序。',
+		'child-exited': 'Windows 音频助手已意外退出。请确认版本匹配；如使用 0.1.1 版，还需安装对应的 .NET 运行环境。',
 		'readiness-timeout': '等待 Windows 音频助手启动超时。',
 		'capture-start-timeout': '等待系统音频捕获启动超时。',
 		'cleanup-failed': '系统音频会话已停止，但清理确认失败。',
@@ -80,7 +80,7 @@ export function runtimeErrorMessage(
 		'invalid-endpoint': 'Windows 音频助手端点无效。',
 		'token-missing': 'Windows 音频助手身份验证信息不可用。',
 		'auth-failed': 'Windows 音频助手身份验证失败。',
-		'protocol-incompatible': '插件与音频助手版本不兼容。',
+		'protocol-incompatible': '插件与音频助手版本不兼容。请从下方链接下载与当前插件版本一致的音频助手。',
 		disposed: '系统音频助手已停止。',
 		'protocol-error': 'Windows 音频助手返回了无效协议数据。',
 		'remote-error': 'Windows 音频助手报告运行错误。',
