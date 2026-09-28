@@ -17,6 +17,7 @@ import {
 	realtimeAsrOverflowReasonLabel,
 	realtimeAsrPumpBlockReasonLabel,
 	realtimeAsrRuntimeUiState,
+	realtimeAsrFailureReport,
 } from './realtime-asr-runtime-ui';
 import type {
 	RealtimeAsrRuntimeControl,
@@ -97,6 +98,8 @@ interface ClassroomWorkbenchUi {
 	realtimeAsrFinalEl: HTMLElement;
 	realtimeAsrDurationEl: HTMLElement;
 	realtimeAsrErrorEl: HTMLElement;
+	realtimeAsrFailureDetailsEl: HTMLElement;
+	copyRealtimeAsrFailureButton: HTMLButtonElement;
 	realtimeAsrDiagnosticsEls: {
 		eventLoopLagCurrent: HTMLElement;
 		eventLoopLagMax: HTMLElement;
@@ -372,6 +375,20 @@ export class ClassroomWorkbenchView extends ItemView {
 		});
 		asrOverviewDetails.createEl('summary', { text: '详细状态' });
 		const realtimeAsrDuration = summaryRow(asrOverviewDetails, '已发送音频');
+		const realtimeAsrFailureDetails = asrOverviewDetails.createEl('pre', {
+			cls: 'lecture-workflow-asr-failure-report is-hidden',
+		});
+		const copyRealtimeAsrFailureButton = this.createButton(asrOverviewDetails, '复制报错详情', async () => {
+			const report = this.lastRealtimeAsrState ? realtimeAsrFailureReport(this.lastRealtimeAsrState) : '';
+			if (!report) return;
+			try {
+				await navigator.clipboard.writeText(report);
+				new Notice('已复制报错详情，不包含密钥、配置或识别文字。');
+			} catch {
+				new Notice('无法复制，请在详细状态中手动复制报错详情。');
+			}
+		});
+		copyRealtimeAsrFailureButton.addClass('lecture-workflow-asr-copy');
 		const asrDetails = asrOverviewDetails.createEl('details', {
 			cls: 'lecture-workflow-workbench-details',
 		});
@@ -607,6 +624,8 @@ export class ClassroomWorkbenchView extends ItemView {
 			realtimeAsrFinalEl: realtimeAsrFinal,
 			realtimeAsrDurationEl: realtimeAsrDuration,
 			realtimeAsrErrorEl: realtimeAsrError,
+			realtimeAsrFailureDetailsEl: realtimeAsrFailureDetails,
+			copyRealtimeAsrFailureButton,
 			realtimeAsrDiagnosticsEls,
 			startRealtimeAsrButton,
 			stopRealtimeAsrButton,
@@ -771,6 +790,10 @@ export class ClassroomWorkbenchView extends ItemView {
 		ui.realtimeAsrPartialEl.setText(state.partialText || '无');
 		ui.realtimeAsrFinalEl.setText(state.lastFinalText || '无');
 		ui.realtimeAsrDurationEl.setText(formatAudioDuration(state.sentAudioDurationMs));
+		const failureReport = realtimeAsrFailureReport(state);
+		ui.realtimeAsrFailureDetailsEl.setText(failureReport);
+		ui.realtimeAsrFailureDetailsEl.toggleClass('is-hidden', !failureReport);
+		ui.copyRealtimeAsrFailureButton.toggleClass('is-hidden', !failureReport);
 		const diagnostics = state.diagnostics;
 		ui.realtimeAsrDiagnosticsEls.eventLoopLagCurrent.setText(
 			`${diagnostics.eventLoopLagCurrentMs} ms`,

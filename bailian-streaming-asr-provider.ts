@@ -14,6 +14,7 @@ import type {
 	RealtimeAsrConfiguration,
 	RealtimeAsrDiagnostics,
 	RealtimeAsrErrorCode,
+	RealtimeAsrFailureDetails,
 	RealtimeAsrOverflowReason,
 	RealtimeAsrPumpBlockReason,
 	RealtimeAsrProvider,
@@ -34,9 +35,9 @@ import {
 	realtimeAsrClientFrameOverhead,
 } from './realtime-asr-types';
 
-const TASK_START_TIMEOUT_MS = 10_000;
+const TASK_START_TIMEOUT_MS = 30_000;
 const FINISH_TIMEOUT_MS = 8_000;
-const CONNECT_TIMEOUT_MS = 10_000;
+const CONNECT_TIMEOUT_MS = 30_000;
 const CONTROL_SEND_TIMEOUT_MS = 5_000;
 const BINARY_SEND_TIMEOUT_MS = 10_000;
 const STOP_DRAIN_TIMEOUT_MS = 11_000;
@@ -98,6 +99,8 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 	private firstDispatchedOrdinal: number | null = null;
 	private nextOrdinal = 0;
 	private lastInboundAtMs: number | null = null;
+	private lastAudioReceivedAtMs: number | null = null;
+	private phase: RealtimeAsrFailureDetails['phase'] = 'connecting';
 	private taskStartedAtMs: number | null = null;
 	private liveStartedAtMs: number | null = null;
 	private lastDispatchAtMs: number | null = null;
@@ -144,12 +147,13 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 			this.socketOpen = true;
 			this.diagnostics.socketEverOpened = true;
 			this.requestPump();
+			this.phase = 'starting-task';
 			this.options.callbacks.onPhase('starting-task');
 			this.startWait = deferred<void>();
 			await withTimeout(transport.sendText(buildBailianRunTask(
 				this.taskId,
 				this.options.configuration.model,
-			)), CONTROL_SEND_TIMEOUT_MS, this.scheduler, this.lifecycleAbort.signal, 'connection-failed');
+			)), CONTROL_SEND_TIMEOUT_MS, this.scheduler, this.lifecycleAbort.signal, 'control-send-timeout');
 			this.diagnostics.runTaskEverSent = true;
 			this.publishProgress();
 			await withTimeout(
@@ -164,7 +168,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 			}
 		} catch (error) {
 			const code = mapProviderError(error);
-			this.fail(code);
+			this.fail(code, this.transportFailureDetails(error));
 			throw new RealtimeAsrError(code);
 		}
 	}
@@ -194,10 +198,12 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 				handlers: {
 					onText: (message) => this.handleText(message),
 					onBinary: () => this.fail('protocol-error'),
-					onClose: () => this.fail('remote-closed'),
-					onError: (error) => this.fail(mapTransportError(error)),
+					onClose: (code) => this.fail('remote-closed', {
+						origin: 'transport', closeCode: Number.isInteger(code) && code >= 1000 && code <= 4999 ? code : null,
+					}),
+					onError: (error) => this.fail(mapTransportError(error), this.transportFailureDetails(error)),
 				},
-			}), CONNECT_TIMEOUT_MS, this.scheduler, this.lifecycleAbort.signal, 'connection-failed');
+			}), CONNECT_TIMEOUT_MS, this.scheduler, this.lifecycleAbort.signal, 'connection-timeout');
 		} finally {
 			apiKey = '';
 			authorization = '';
@@ -208,6 +214,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 		if (this.disposed || this.finished || this.stopping) return;
 		try {
 			const chunk = this.aggregator.push(frame);
+			this.lastAudioReceivedAtMs = this.scheduler.now();
 			if (!chunk) return;
 			if (this.audioSendReady) {
 				this.enqueueLive(this.prepareChunk(chunk, 'live'));
@@ -226,6 +233,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 			return;
 		}
 		this.stopping = true;
+		this.phase = 'stopping';
 		this.drainWhileStopping = true;
 		this.refreshPumpDiagnostics();
 		this.options.callbacks.onPhase('stopping');
@@ -253,7 +261,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 				CONTROL_SEND_TIMEOUT_MS,
 				this.scheduler,
 				this.lifecycleAbort.signal,
-				'connection-failed',
+				'control-send-timeout',
 			);
 			await withTimeout(
 				this.finishWait.promise,
@@ -264,7 +272,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 			);
 		} catch (error) {
 			const code = mapProviderError(error);
-			if (!this.disposed && !this.lifecycleAbort.signal.aborted) this.fail(code);
+			if (!this.disposed && !this.lifecycleAbort.signal.aborted) this.fail(code, this.transportFailureDetails(error));
 		} finally {
 			this.close();
 		}
@@ -291,6 +299,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 					if (this.taskStarted || this.stopping) throw new RealtimeAsrError('protocol-error');
 					this.diagnostics.taskStartedEventCount += 1;
 					this.taskStarted = true;
+					this.phase = 'streaming';
 					this.audioSendReady = true;
 					this.diagnostics.taskEverStarted = true;
 					this.taskStartedAtMs = this.scheduler.now();
@@ -327,7 +336,10 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 				case 'task-failed':
 					this.diagnostics.taskFailedEventCount += 1;
 					this.publishProgress();
-					this.fail('task-failed');
+					this.fail('task-failed', {
+						origin: 'service', reason: event.reason, serviceCode: event.serviceCode,
+						serviceTimeoutSeconds: event.serviceTimeoutSeconds,
+					});
 					return;
 			}
 		} catch (error) {
@@ -493,7 +505,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 			}
 			send = Promise.resolve(transport.sendBinary(chunk.data));
 		} catch (error) {
-			this.settleSend(chunk, mapProviderError(error));
+			this.settleSend(chunk, mapProviderError(error), this.transportFailureDetails(error));
 			return;
 		}
 		void withTimeout(
@@ -504,7 +516,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 			'audio-send-timeout',
 		).then(
 			() => this.settleSend(chunk, null),
-			(error: unknown) => this.settleSend(chunk, mapProviderError(error)),
+			(error: unknown) => this.settleSend(chunk, mapProviderError(error), this.transportFailureDetails(error)),
 		);
 		if (this.queue.length > 0) this.schedulePumpAt(this.nextMediaDeadlineMs);
 	}
@@ -563,7 +575,8 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 		this.pumpTimerDueAt = null;
 	}
 
-	private settleSend(chunk: DispatchChunk, error: RealtimeAsrErrorCode | null): void {
+	private settleSend(chunk: DispatchChunk, error: RealtimeAsrErrorCode | null,
+		details: Partial<RealtimeAsrFailureDetails> = {}): void {
 		if (chunk.settled || this.inFlight.get(chunk.ordinal) !== chunk) return;
 		chunk.settled = true;
 		this.inFlight.delete(chunk.ordinal);
@@ -582,7 +595,7 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 			this.publishProgress();
 			this.rejectDrain(error);
 			try {
-				this.fail(error);
+				this.fail(error, details);
 			} finally {
 				chunk.data.fill(0);
 			}
@@ -836,7 +849,10 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 			sentFrameCount: this.sentFrameCount,
 			sentAudioDurationMs: this.sentFrameCount * 20,
 			audioBaseOffsetMs: this.audioBaseOffsetMs,
-			diagnostics: { ...this.diagnostics },
+			diagnostics: {
+				...this.diagnostics,
+				...(this.diagnostics.failure ? { failure: { ...this.diagnostics.failure } } : {}),
+			},
 		});
 		this.diagnostics.maxStateListenerDurationMs = Math.max(
 			this.diagnostics.maxStateListenerDurationMs,
@@ -862,9 +878,35 @@ export class BailianStreamingAsrProvider implements RealtimeAsrProvider {
 		);
 	}
 
-	private fail(code: RealtimeAsrErrorCode): void {
+	private transportFailureDetails(error: unknown): Partial<RealtimeAsrFailureDetails> {
+		if (error instanceof RealtimeAsrError && error.timeoutMs !== null) return { localTimeoutMs: error.timeoutMs };
+		return error instanceof RealtimeAsrTransportError ? {
+			origin: 'transport', httpStatus: error.httpStatus, networkCode: error.networkCode,
+			reason: error.code === 'auth-failed' ? 'authentication'
+				: error.httpStatus === 429 ? 'rate-limit'
+					: error.httpStatus !== null && error.httpStatus >= 500 ? 'service-unavailable' : 'unknown',
+		} : {};
+	}
+
+	private fail(code: RealtimeAsrErrorCode, details: Partial<RealtimeAsrFailureDetails> = {}): void {
 		if (this.disposed || this.finished) return;
 		this.finished = true;
+		const now = this.scheduler.now();
+		this.diagnostics.failure = {
+			phase: this.phase, origin: 'client',
+			reason: code === 'connection-timeout' || code === 'control-send-timeout' || code === 'task-start-failed'
+				|| code === 'audio-send-timeout' || code === 'finish-timeout' ? 'timeout' : 'unknown',
+			serviceCode: null, serviceTimeoutSeconds: null, httpStatus: null,
+			networkCode: null, closeCode: null,
+			taskId: /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(this.taskId) ? this.taskId : null,
+			elapsedMs: Math.max(0, now - this.progressStartedAtMs),
+			lastAudioReceivedAgeMs: this.lastAudioReceivedAtMs === null ? null : Math.max(0, now - this.lastAudioReceivedAtMs),
+			lastAudioDispatchAgeMs: this.lastDispatchAtMs === null ? null : Math.max(0, now - this.lastDispatchAtMs),
+			queuedChunks: this.queue.length, pendingSends: this.inFlight.size,
+			bufferedBytes: this.transport?.bufferedAmount ?? this.diagnostics.wsBufferedAmount,
+			...details,
+		};
+		try { this.publishProgress(); } catch { /* Failure cleanup must still run. */ }
 		this.lifecycleAbort.abort();
 		this.startWait?.reject(new RealtimeAsrError(code));
 		this.finishWait?.reject(new RealtimeAsrError(code));
@@ -952,7 +994,7 @@ function withTimeout(
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		let settled = false;
-		const timer = scheduler.setTimeout(() => finish(new RealtimeAsrError(code)), delayMs);
+		const timer = scheduler.setTimeout(() => finish(new RealtimeAsrError(code, delayMs)), delayMs);
 		const abort = () => finish(new RealtimeAsrError('connection-failed'));
 		const finish = (error?: Error) => {
 			if (settled) return;

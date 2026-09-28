@@ -55,6 +55,7 @@ const {
 	realtimeAsrOverflowReasonLabel,
 	realtimeAsrPumpBlockReasonLabel,
 	realtimeAsrRuntimeUiState,
+	realtimeAsrFailureReport,
 	runCurrentTransportDiagnostic,
 	runOfficialSequenceMinimalDiagnostic,
 } = api;
@@ -575,8 +576,8 @@ test('provider bounds hung connect and binary send operations and dispose clears
 	const connect = connecting.provider.start(new AbortController().signal);
 	await waitFor(() => connectScheduler.tasks.size === 1);
 	connectScheduler.runAll();
-	await assert.rejects(connect, /connection-failed/);
-	assert.deepEqual(connecting.failures, ['connection-failed']);
+	await assert.rejects(connect, /connection-timeout/);
+	assert.deepEqual(connecting.failures, ['connection-timeout']);
 
 	const sendScheduler = new ControlledScheduler();
 	const sendingTransport = new FakeTransport();
@@ -1591,24 +1592,27 @@ test('production sender discards 2.4 seconds of startup audio then sustains sixt
 test('production sender bounds warm-up until connect timeout without misreporting backpressure', async () => {
 	const harness = productionSenderHarness({ openDelayMs: 60_000 });
 	const starting = harness.provider.start(new AbortController().signal);
-	const rejected = assert.rejects(starting, /connection-failed/);
+	const rejected = assert.rejects(starting, /connection-timeout/);
 	let sequence = 0;
-	for (let chunk = 0; chunk < 99; chunk += 1) {
+	for (let chunk = 0; chunk < 299; chunk += 1) {
 		sequence = pushChunks(harness.provider, sequence, 1);
 		await harness.scheduler.advanceBy(100);
 	}
 	let diagnostics = latestDiagnostics(harness);
 	assert.equal(diagnostics.warmupQueuedChunkCount, 20);
-	assert.equal(diagnostics.warmupDroppedChunkCount, 79);
+	assert.equal(diagnostics.warmupDroppedChunkCount, 279);
 	assert.equal(diagnostics.socketEverOpened, false);
 	sequence = pushChunks(harness.provider, sequence, 1);
 	await harness.scheduler.advanceBy(100);
 	await rejected;
 	diagnostics = latestDiagnostics(harness);
-	assert.deepEqual(harness.failures, ['connection-failed']);
+	assert.deepEqual(harness.failures, ['connection-timeout']);
 	assert.equal(diagnostics.overflowReason, null);
 	assert.equal(diagnostics.warmupQueuedChunkCount, 0);
-	assert.equal(diagnostics.warmupDroppedChunkCount, 80);
+	assert.equal(diagnostics.warmupDroppedChunkCount, 280);
+	assert.equal(diagnostics.failure.phase, 'connecting');
+	assert.equal(diagnostics.failure.elapsedMs, 30_000);
+	assert.equal(diagnostics.failure.localTimeoutMs, 30_000);
 	assert.equal(harness.provider.warmupQueue.length, 0);
 });
 
@@ -1659,7 +1663,7 @@ test('production sender lets task-start timeout own a missing task-started failu
 	const rejected = assert.rejects(starting, /task-start-failed/);
 	await waitFor(() => harness.control.textActions.includes('run-task'));
 	let sequence = 0;
-	for (let chunk = 0; chunk < 100; chunk += 1) {
+	for (let chunk = 0; chunk < 300; chunk += 1) {
 		sequence = pushChunks(harness.provider, sequence, 1);
 		await harness.scheduler.advanceBy(100);
 	}
@@ -1690,7 +1694,7 @@ test('production task-start timeout begins only after run-task write succeeds', 
 	await waitFor(() => harness.control.textActions.includes('run-task'));
 	diagnostics = latestDiagnostics(harness);
 	assert.equal(diagnostics.runTaskEverSent, true);
-	await harness.scheduler.advanceBy(9_999);
+	await harness.scheduler.advanceBy(29_999);
 	assert.deepEqual(harness.failures, []);
 	await harness.scheduler.advanceBy(1);
 	await rejected;
@@ -2620,7 +2624,7 @@ test('controller rejects PCM from an Audio Companion run with another classroom 
 	const harness = controllerHarness({}, { sessionId: 'old-class', startedAtUnixMs: 1 });
 	assert.equal(await harness.controller.start(), 'error');
 	assert.equal(harness.providers.length, 0);
-	assert.equal(harness.controller.state.errorCode, 'connection-failed');
+	assert.equal(harness.controller.state.errorCode, 'audio-unavailable');
 });
 
 test('controller subscribes frames only during a run and supports stop then restart', async () => {
@@ -3108,6 +3112,183 @@ test('Workbench subscription does not change production dispatch, callback, or F
 		};
 	};
 	assert.deepEqual(await run(true), await run(false));
+});
+
+test('slow handshake and task startup each get a bounded 30-second window', async () => {
+	const harness = productionSenderHarness({ openDelayMs: 15_000, taskStartedDelayMs: 15_000 });
+	const starting = harness.provider.start(new AbortController().signal);
+	await waitFor(() => harness.control.socket !== null);
+	await harness.scheduler.advanceBy(15_000);
+	await waitFor(() => harness.control.textActions.includes('run-task'));
+	assert.deepEqual(harness.failures, []);
+	await harness.scheduler.advanceBy(14_999);
+	assert.deepEqual(harness.failures, []);
+	await harness.scheduler.advanceBy(1);
+	await starting;
+	assert.equal(harness.phases.at(-1), 'streaming');
+	harness.provider.dispose();
+});
+
+test('service timeout retains failure-time audio evidence and discards arbitrary server text', async () => {
+	const scheduler = new VirtualRealtimeScheduler();
+	const harness = providerHarness(scheduler);
+	const starting = harness.provider.start(new AbortController().signal);
+	await waitFor(() => harness.transport.texts.length === 1);
+	harness.transport.emit(serverEvent('task-started'));
+	await starting;
+	for (let index = 0; index < 5; index++) harness.provider.acceptFrame(frame(index));
+	await waitFor(() => harness.progress.at(-1).sentFrameCount === 5);
+	await scheduler.advanceBy(25_000);
+	harness.transport.emit(JSON.stringify({
+		header: { event: 'task-failed', task_id: 'task-1', error_code: 'CLIENT_ERROR',
+			error_message: 'request timeout after 23 seconds. apiKey=unit-test-secret transcript=private-speech' },
+		payload: {},
+	}));
+	assert.deepEqual(harness.failures, ['task-failed']);
+	const diagnostics = harness.progress.at(-1).diagnostics;
+	assert.equal(diagnostics.failure.phase, 'streaming');
+	assert.equal(diagnostics.failure.origin, 'service');
+	assert.equal(diagnostics.failure.reason, 'timeout');
+	assert.equal(diagnostics.failure.serviceCode, 'CLIENT_ERROR');
+	assert.equal(diagnostics.failure.serviceTimeoutSeconds, 23);
+	assert.equal(diagnostics.failure.lastAudioReceivedAgeMs, 25_000);
+	const state = asrState('error', { errorCode: 'task-failed', diagnostics, partialText: 'private-speech' });
+	const report = realtimeAsrFailureReport(state);
+	assert.match(report, /服务端.*超时（23 秒）/);
+	assert.match(report, /25.0 秒未收到助手音频帧/);
+	assert.match(report, /失败阶段：实时转写/);
+	assert.doesNotMatch(JSON.stringify(diagnostics) + report, /unit-test-secret|private-speech|apiKey=/);
+});
+
+test('service failures classify authentication, rate limits and quota without storing raw messages', () => {
+	for (const [code, message, reason] of [
+		['InvalidApiKey', 'secret body', 'authentication'],
+		['CLIENT_ERROR', 'authentication failed: secret body', 'authentication'],
+		['Throttling.RateQuota', 'secret body', 'rate-limit'],
+		['Arrearage', 'secret body', 'quota'],
+		['InvalidParameter', 'secret body', 'invalid-configuration'],
+		['SERVER_ERROR', 'secret body', 'service-unavailable'],
+		['sk-secret', 'secret body', 'unknown'],
+	]) {
+		const event = parseBailianAsrServerEvent(JSON.stringify({
+			header: { event: 'task-failed', task_id: 'task-1', error_code: code, error_message: message },
+			payload: {},
+		}), 'task-1');
+		assert.equal(event.reason, reason);
+		assert.doesNotMatch(JSON.stringify(event), /secret/);
+	}
+});
+
+test('transport HTTP and network causes survive provider cleanup and produce actionable reports', async () => {
+	for (const [details, pattern] of [
+		[{ httpStatus: 429 }, /HTTP 429.*限流/],
+		[{ httpStatus: 503 }, /HTTP 503/],
+		[{ networkCode: 'ENOTFOUND' }, /地址解析失败/],
+		[{ networkCode: 'ECONNRESET' }, /ECONNRESET/],
+	]) {
+		const transport = new FakeTransport();
+		transport.connect = async () => { throw new RealtimeAsrTransportError('connection-failed', details); };
+		const harness = providerHarness(undefined, transport);
+		await assert.rejects(harness.provider.start(new AbortController().signal));
+		const diagnostics = harness.progress.at(-1).diagnostics;
+		assert.equal(diagnostics.failure.phase, 'connecting');
+		assert.equal(diagnostics.failure.origin, 'transport');
+		assert.match(realtimeAsrFailureReport(asrState('error', { errorCode: 'connection-failed', diagnostics })), pattern);
+	}
+	const unsafe = new RealtimeAsrTransportError('connection-failed', { networkCode: 'api-key-secret', httpStatus: NaN });
+	assert.equal(unsafe.networkCode, null);
+	assert.equal(unsafe.httpStatus, null);
+});
+
+test('WebSocket close code remains available after streaming terminates', async () => {
+	const harness = providerHarness();
+	const starting = harness.provider.start(new AbortController().signal);
+	await waitFor(() => harness.transport.texts.length === 1);
+	harness.transport.emit(serverEvent('task-started'));
+	await starting;
+	harness.transport.connectOptions.handlers.onClose(1006);
+	assert.deepEqual(harness.failures, ['remote-closed']);
+	assert.equal(harness.progress.at(-1).diagnostics.failure.closeCode, 1006);
+	assert.equal(harness.progress.at(-1).diagnostics.failure.phase, 'streaming');
+});
+
+test('production socket preserves only allowlisted network codes from Error events', async () => {
+	const transport = createNodeRealtimeAsrTransport(async () => InjectedWebSocket);
+	InjectedWebSocket.instance = null;
+	const connecting = transport.connect({
+		endpoint: 'wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference',
+		authorization: 'Bearer safe-test-secret', signal: new AbortController().signal,
+		handlers: { onText() {}, onBinary() {}, onClose() {}, onError() {} },
+	});
+	await waitFor(() => InjectedWebSocket.instance !== null);
+	InjectedWebSocket.instance.emit('error', Object.assign(new Error('private server body'), { code: 'ETIMEDOUT' }));
+	await assert.rejects(connecting, (error) => error.networkCode === 'ETIMEDOUT'
+		&& !JSON.stringify(error).includes('private server body'));
+	transport.dispose();
+});
+
+test('HTTP handshake rejection is not replaced by cleanup error or close events', async () => {
+	class RejectSocket extends InjectedWebSocket {
+		terminate() {
+			super.terminate();
+			this.emit('error', new Error('connection cleanup error'));
+			this.emit('close', 1006);
+		}
+	}
+	const harness = providerHarness(undefined, createNodeRealtimeAsrTransport(async () => RejectSocket));
+	InjectedWebSocket.instance = null;
+	const starting = harness.provider.start(new AbortController().signal);
+	await waitFor(() => InjectedWebSocket.instance !== null);
+	InjectedWebSocket.instance.emit('unexpected-response', {}, { statusCode: 429, resume() {} });
+	await assert.rejects(starting);
+	assert.deepEqual(harness.failures, ['connection-failed']);
+	assert.equal(harness.progress.at(-1).diagnostics.failure.httpStatus, 429);
+	assert.equal(harness.progress.at(-1).diagnostics.failure.closeCode, null);
+});
+
+test('hung control writes report their own five-second timeout instead of task-start timeout', async () => {
+	const scheduler = new ControlledScheduler();
+	const transport = new FakeTransport();
+	transport.sendText = async () => new Promise(() => {});
+	const harness = providerHarness(scheduler, transport);
+	const starting = harness.provider.start(new AbortController().signal);
+	await waitFor(() => harness.phases.at(-1) === 'starting-task' && scheduler.tasks.size === 1);
+	scheduler.runAll();
+	await assert.rejects(starting, /control-send-timeout/);
+	assert.deepEqual(harness.failures, ['control-send-timeout']);
+	const diagnostics = harness.progress.at(-1).diagnostics;
+	assert.equal(diagnostics.failure.localTimeoutMs, 5_000);
+	assert.equal(diagnostics.failure.phase, 'starting-task');
+	assert.equal(diagnostics.runTaskEverSent, false);
+	assert.match(realtimeAsrFailureReport(asrState('error', { errorCode: 'control-send-timeout', diagnostics })), /本地等待上限：5.0 秒/);
+	assert.equal(scheduler.tasks.size, 0);
+});
+
+test('session failure snapshots cannot be mutated by consumers and clear on restart', async () => {
+	const harness = controllerHarness();
+	await harness.controller.start();
+	const diagnostics = { ...harness.controller.state.diagnostics, failure: {
+		phase: 'streaming', origin: 'service', reason: 'timeout', serviceCode: 'CLIENT_ERROR',
+		serviceTimeoutSeconds: 23, httpStatus: null, networkCode: null, closeCode: null,
+		taskId: null, elapsedMs: 25_000, lastAudioReceivedAgeMs: 25_000,
+		lastAudioDispatchAgeMs: 25_000, queuedChunks: 0, pendingSends: 0, bufferedBytes: 0,
+	} };
+	harness.providers[0].callbacks.onProgress({
+		sentFrameCount: 0, sentAudioDurationMs: 0, audioBaseOffsetMs: null, diagnostics,
+	});
+	harness.providers[0].callbacks.onFailure('task-failed');
+	assert.equal(harness.controller.state.diagnostics.failure.serviceTimeoutSeconds, 23);
+	const external = harness.controller.state;
+	external.diagnostics.failure.serviceTimeoutSeconds = 999;
+	assert.equal(harness.controller.state.diagnostics.failure.serviceTimeoutSeconds, 23);
+	harness.emitAudio('stopped');
+	assert.equal(await harness.controller.start(), 'error');
+	assert.equal(harness.controller.state.errorCode, 'audio-unavailable');
+	assert.equal(harness.controller.state.diagnostics.failure, undefined);
+	harness.emitAudio('capturing');
+	await harness.controller.start();
+	assert.equal(harness.controller.state.diagnostics.failure, undefined);
+	harness.controller.dispose();
 });
 
 test('Workbench UI enables controls only for compatible audio/ASR states', () => {

@@ -147,6 +147,7 @@ function connectSocket(
 ): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
 		let settled = false;
+		let opened = false;
 		const finish = (error?: RealtimeAsrTransportError) => {
 			if (settled) return;
 			settled = true;
@@ -157,14 +158,15 @@ function connectSocket(
 			socket.terminate();
 			finish(new RealtimeAsrTransportError('connection-failed'));
 		};
-		socket.once('open', () => finish());
+		socket.once('open', () => { opened = true; finish(); });
 		socket.once('unexpected-response', (_request, response) => {
 			const code = response.statusCode;
 			response.resume();
-			socket.terminate();
 			finish(new RealtimeAsrTransportError(
 				code === 401 || code === 403 ? 'auth-failed' : 'connection-failed',
+				{ httpStatus: code },
 			));
+			socket.terminate();
 		});
 		socket.on('message', (data, isBinary) => {
 			if (isInactive()) return;
@@ -179,17 +181,18 @@ function connectSocket(
 				handlers.onText(decodeTextData(data));
 			}
 		});
-		socket.on('error', () => {
+		socket.on('error', (error: Error & { code?: string }) => {
+			const failure = new RealtimeAsrTransportError('connection-failed', { networkCode: error.code });
 			if (!settled) {
-				finish(new RealtimeAsrTransportError('connection-failed'));
-			} else if (!isInactive()) {
-				handlers.onError(new RealtimeAsrTransportError('connection-failed'));
+				finish(failure);
+			} else if (opened && !isInactive()) {
+				handlers.onError(failure);
 			}
 		});
 		socket.on('close', (code) => {
 			if (!settled) {
 				finish(new RealtimeAsrTransportError('remote-closed'));
-			} else if (!isInactive()) {
+			} else if (opened && !isInactive()) {
 				handlers.onClose(code);
 			}
 		});

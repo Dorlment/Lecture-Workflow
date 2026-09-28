@@ -338,3 +338,15 @@
 .lecture-workflow-asr-ab-table thead th {
 	background: var(--background-secondary);
 }
+
+.lecture-workflow-asr-failure-report {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-size: var(--font-ui-small);
+	font-family: var(--font-interface);
+}
+
+.lecture-workflow-asr-failure-report.is-hidden,
+.lecture-workflow-asr-copy.is-hidden {
+	display: none;
+}

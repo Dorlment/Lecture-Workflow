@@ -51,6 +51,7 @@ export type RealtimeAsrInboundEventKind =
 	| 'unknown';
 
 export interface RealtimeAsrDiagnostics {
+	failure?: RealtimeAsrFailureDetails;
 	eventLoopLagCurrentMs: number;
 	eventLoopLagMaxMs: number;
 	eventLoopLagP95Ms: number;
@@ -134,16 +135,55 @@ export type RealtimeAsrErrorCode =
 	| 'configuration-error'
 	| 'auth-failed'
 	| 'connection-failed'
+	| 'connection-timeout'
+	| 'control-send-timeout'
 	| 'task-start-failed'
 	| 'task-failed'
 	| 'protocol-error'
 	| 'audio-format-invalid'
+	| 'audio-unavailable'
 	| 'audio-sequence-invalid'
 	| 'audio-buffer-overflow'
 	| 'audio-send-timeout'
 	| 'unexpected-websocket-compression'
 	| 'finish-timeout'
 	| 'remote-closed';
+
+export type RealtimeAsrFailureReason =
+	| 'timeout' | 'authentication' | 'rate-limit' | 'quota'
+	| 'invalid-configuration' | 'service-unavailable' | 'unknown';
+
+export interface RealtimeAsrFailureDetails {
+	localTimeoutMs?: number;
+	phase: 'connecting' | 'starting-task' | 'streaming' | 'stopping';
+	origin: 'client' | 'service' | 'transport';
+	reason: RealtimeAsrFailureReason;
+	serviceCode: string | null;
+	serviceTimeoutSeconds: number | null;
+	httpStatus: number | null;
+	networkCode: RealtimeAsrNetworkCode | null;
+	closeCode: number | null;
+	taskId: string | null;
+	elapsedMs: number;
+	lastAudioReceivedAgeMs: number | null;
+	lastAudioDispatchAgeMs: number | null;
+	queuedChunks: number;
+	pendingSends: number;
+	bufferedBytes: number;
+}
+
+export type RealtimeAsrNetworkCode =
+	| 'ETIMEDOUT' | 'ECONNRESET' | 'ECONNREFUSED' | 'ENOTFOUND' | 'EAI_AGAIN'
+	| 'CERT_HAS_EXPIRED' | 'DEPTH_ZERO_SELF_SIGNED_CERT' | 'UNABLE_TO_VERIFY_LEAF_SIGNATURE';
+
+export function realtimeAsrNetworkCode(value: unknown): RealtimeAsrNetworkCode | null {
+	switch (value) {
+		case 'ETIMEDOUT': case 'ECONNRESET': case 'ECONNREFUSED': case 'ENOTFOUND':
+		case 'EAI_AGAIN': case 'CERT_HAS_EXPIRED': case 'DEPTH_ZERO_SELF_SIGNED_CERT':
+		case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE': return value;
+		default: return null;
+	}
+}
 
 export interface RealtimeAsrWord {
 	text: string;
@@ -219,18 +259,24 @@ export interface RealtimeAsrWebSocketTransport {
 export type RealtimeAsrTransportFactory = () => RealtimeAsrWebSocketTransport;
 
 export class RealtimeAsrTransportError extends Error {
+	readonly httpStatus: number | null;
+	readonly networkCode: RealtimeAsrNetworkCode | null;
 	constructor(readonly code:
 		| 'auth-failed'
 		| 'connection-failed'
 		| 'remote-closed'
-		| 'unexpected-websocket-compression') {
+		| 'unexpected-websocket-compression', details?: { httpStatus?: number; networkCode?: unknown }) {
 		super(`Realtime ASR transport failed: ${code}.`);
 		this.name = 'RealtimeAsrTransportError';
+		const status = details?.httpStatus;
+		this.httpStatus = typeof status === 'number' && Number.isInteger(status)
+			&& status >= 100 && status <= 599 ? status : null;
+		this.networkCode = realtimeAsrNetworkCode(details?.networkCode);
 	}
 }
 
 export class RealtimeAsrError extends Error {
-	constructor(readonly code: RealtimeAsrErrorCode) {
+	constructor(readonly code: RealtimeAsrErrorCode, readonly timeoutMs: number | null = null) {
 		super(`Realtime ASR failed: ${code}.`);
 		this.name = 'RealtimeAsrError';
 	}

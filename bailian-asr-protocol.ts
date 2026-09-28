@@ -6,6 +6,7 @@ import type {
 	RealtimeAsrWord,
 } from './realtime-asr-types';
 import { RealtimeAsrError } from './realtime-asr-types';
+import { classifyRealtimeAsrServiceFailure } from './realtime-asr-failure';
 
 const MAX_SERVER_MESSAGE_CHARS = 256 * 1024;
 const MAX_TEXT_CHARS = 8_192;
@@ -16,7 +17,7 @@ export type BailianAsrServerEvent =
 	| { type: 'result-generated'; heartbeat: true }
 	| { type: 'result-generated'; heartbeat: false; segment: RealtimeAsrSegment }
 	| { type: 'task-finished' }
-	| { type: 'task-failed' };
+	| ({ type: 'task-failed' } & ReturnType<typeof classifyRealtimeAsrServiceFailure>);
 
 export function buildBailianAsrEndpoint(
 	region: string,
@@ -91,7 +92,10 @@ export function parseBailianAsrServerEvent(
 			if (typeof header.error_code !== 'string') {
 				throw new RealtimeAsrError('protocol-error');
 			}
-			return { type: 'task-failed' };
+			return {
+				type: 'task-failed',
+				...classifyRealtimeAsrServiceFailure(header.error_code, header.error_message),
+			};
 		case 'result-generated':
 			return parseResult(root);
 		default:

@@ -113,14 +113,14 @@ export class RealtimeAsrSessionController implements RealtimeAsrRuntimeControl {
 			return 'configuration-error';
 		}
 		if (this.options.audio.state.status !== 'capturing') {
-			this.setFailure('connection-failed');
+			this.setFailure('audio-unavailable');
 			return 'error';
 		}
 		const audioSession = this.options.audio.sessionContext;
 		if (!audioSession
 			|| audioSession.sessionId !== classroom.sessionId
 			|| audioSession.startedAtUnixMs !== classroom.startedAtUnixMs) {
-			this.setFailure('connection-failed');
+			this.setFailure('audio-unavailable');
 			return 'error';
 		}
 		const runVersion = ++this.runVersion;
@@ -273,7 +273,9 @@ export class RealtimeAsrSessionController implements RealtimeAsrRuntimeControl {
 	}
 
 	private setFailure(errorCode: RealtimeAsrErrorCode): void {
-		this.setState({ ...this.currentState, status: 'error', errorCode });
+		const diagnostics = { ...this.currentState.diagnostics };
+		if (errorCode === 'audio-unavailable') delete diagnostics.failure;
+		this.setState({ ...this.currentState, status: 'error', errorCode, diagnostics });
 	}
 
 	private setState(state: RealtimeAsrRuntimeState): void {
@@ -331,7 +333,10 @@ function emptyState(): RealtimeAsrRuntimeState {
 function cloneState(state: RealtimeAsrRuntimeState): RealtimeAsrRuntimeState {
 	return {
 		...state,
-		diagnostics: { ...state.diagnostics },
+		diagnostics: {
+			...state.diagnostics,
+			...(state.diagnostics.failure ? { failure: { ...state.diagnostics.failure } } : {}),
+		},
 		recentFinalSegments: state.recentFinalSegments.map((segment) => ({
 			...segment,
 			...(segment.words ? { words: segment.words.map((word) => ({ ...word })) } : {}),
