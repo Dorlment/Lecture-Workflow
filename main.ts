@@ -100,7 +100,12 @@ import type {
 	ScreenshotBackgroundState,
 } from './screenshot-background-types';
 import { createElectronClipboardAdapter } from './screenshot-clipboard-adapter';
-import { emptyScreenshotTimelineRanges, screenshotTimelineDeletionExtension } from './screenshot-timeline-cleanup';
+import {
+	deletedScreenshotTimelineRanges,
+	emptyScreenshotTimelineRanges,
+	screenshotTimelineDeletionExtension,
+	screenshotTimelineEditorChange,
+} from './screenshot-timeline-cleanup';
 import type {
 	LectureNoteInput,
 	LectureWorkflowSettings,
@@ -142,6 +147,9 @@ export default class LectureWorkflowPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		this.registerEditorExtension(screenshotTimelineDeletionExtension());
+		// Image context menus can bypass CodeMirror transaction filters. Wait
+		// until the editor finishes its update, then clean only empty entries.
+		this.registerEvent(this.app.workspace.on('editor-change', screenshotTimelineEditorChange));
 		this.initializeScreenshotBackgroundSession();
 		this.audioCaptureProbe = createBrowserAudioCaptureProbe(() => Platform.isDesktopApp);
 		this.audioCompanionClient = new AudioCompanionClient({
@@ -677,6 +685,11 @@ export default class LectureWorkflowPlugin extends Plugin {
 		this.registerEvent(this.app.vault.on('delete', (file) => {
 			if (file instanceof TFile) {
 				this.classroomSessionController?.handleTargetDeleted(file);
+				if (/^(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(file.extension)) {
+					void this.cleanDeletedScreenshotAttachment(file).catch(() => {
+						new Notice('图片已删除，但课堂时间戳清理失败，请运行「清理已删除截图的空时间戳」。');
+					});
+				}
 			}
 		}));
 		this.registerEvent(this.app.vault.on('rename', (file) => {
@@ -684,6 +697,33 @@ export default class LectureWorkflowPlugin extends Plugin {
 				this.classroomSessionController?.handleTargetRenamed(file);
 			}
 		}));
+	}
+
+	private async cleanDeletedScreenshotAttachment(deleted: TFile): Promise<void> {
+		const sources = Object.entries(this.app.metadataCache.resolvedLinks)
+			.filter(([, links]) => (links[deleted.path] ?? 0) > 0).map(([path]) => path);
+		const active = this.app.workspace.getActiveFile();
+		if (active && !sources.includes(active.path)) sources.push(active.path);
+		for (const path of sources) {
+			const note = this.app.vault.getAbstractFileByPath(path);
+			if (!(note instanceof TFile) || note.extension !== 'md') continue;
+			await this.app.vault.process(note, (markdown) => {
+				const ranges = deletedScreenshotTimelineRanges(markdown, (rawLink) => {
+					let link = rawLink;
+					try { link = decodeURIComponent(link); } catch { return false; }
+					if (this.app.metadataCache.getFirstLinkpathDest(link, path)) return false;
+					const directory = path.slice(0, path.lastIndexOf('/') + 1);
+					const relative = [...directory.split('/'), ...link.split('/')].reduce<string[]>((parts, part) => {
+						if (part === '..') parts.pop();
+						else if (part && part !== '.') parts.push(part);
+						return parts;
+					}, []).join('/');
+					return link === deleted.path || relative === deleted.path || link === deleted.name;
+				});
+				for (const { from, to } of ranges.reverse()) markdown = markdown.slice(0, from) + markdown.slice(to);
+				return markdown;
+			});
+		}
 	}
 
 	private updateScreenshotStatusBar(state: ScreenshotBackgroundState): void {

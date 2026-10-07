@@ -1,4 +1,5 @@
 import { EditorState, type Extension } from '@codemirror/state';
+import type { Editor } from 'obsidian';
 import { TIMELINE_START_MARKER, TIMELINE_END_MARKER } from './screenshot-timeline';
 
 export interface EmptyScreenshotRange {
@@ -31,16 +32,52 @@ export function emptyScreenshotTimelineRanges(markdown: string): EmptyScreenshot
 		const seconds = Math.floor(offset / 1000);
 		const clock = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
 			.map((value) => String(value).padStart(2, '0')).join(':');
-		if (content.trim() !== `### ${clock} · 课堂截图`) continue;
+		if (content.trim() !== '' && content.trim() !== `### ${clock} · 课堂截图`) continue;
 		ranges.push({ from: start + from, to: start + to, eventId: marker[1]! });
 	}
 	return ranges;
 }
 
+/** A deleted attachment may leave an embed in the note. Only remove an event
+ * when that embed was its last content; retain annotations and other images. */
+export function deletedScreenshotTimelineRanges(
+	markdown: string,
+	isDeletedLink: (link: string) => boolean,
+): EmptyScreenshotRange[] {
+	const alreadyEmpty = new Set(emptyScreenshotTimelineRanges(markdown).map((range) => range.eventId));
+	const withoutDeletedImage = markdown.replace(/!\[\[([^\]\n]+)\]\]|!\[[^\]\n]*\]\(([^\n)]+)\)/g, (embed: string, wiki: string | undefined, url: string | undefined) => {
+		const link = wiki?.split('|')[0] ?? url?.replace(/^<|>$/g, '');
+		if (!link || !isDeletedLink(link)) return embed;
+		// Keep offsets stable so returned ranges apply to the original document.
+		return ' '.repeat(embed.length);
+	});
+	return emptyScreenshotTimelineRanges(withoutDeletedImage).filter((range) => !alreadyEmpty.has(range.eventId));
+}
+
+/** Fallback for editor API calls that explicitly disable transaction filters. */
+export function screenshotTimelineEditorChange(editor: Pick<Editor, 'getValue' | 'offsetToPos' | 'transaction'>): void {
+	if (emptyScreenshotTimelineRanges(editor.getValue()).length === 0) return;
+	queueMicrotask(() => {
+		const ranges = emptyScreenshotTimelineRanges(editor.getValue());
+		if (ranges.length === 0) return;
+		editor.transaction({ changes: ranges.map(({ from, to }) => ({
+			from: editor.offsetToPos(from), to: editor.offsetToPos(to), text: '',
+		})) });
+	});
+}
+
 /** Merge cleanup into the user's deletion so a single undo restores the full entry. */
 export function screenshotTimelineDeletionExtension(): Extension {
 	return EditorState.transactionFilter.of((transaction) => {
-		if (!transaction.docChanged || !transaction.isUserEvent('delete')) return transaction;
+		// Obsidian's rendered-image edits can dispatch unannotated changes or
+		// input/cut events. Detect removal from the document instead of depending
+		// on CodeMirror's keyboard-delete annotation. Leave history replay alone.
+		if (!transaction.docChanged || transaction.isUserEvent('undo') || transaction.isUserEvent('redo')) return transaction;
+		let removedContent = false;
+		transaction.changes.iterChangedRanges((from, to) => {
+			if (transaction.startState.doc.sliceString(from, to).trim()) removedContent = true;
+		});
+		if (!removedContent) return transaction;
 		const before = transaction.startState.doc.toString();
 		const after = transaction.newDoc.toString();
 		if (!before.includes(TIMELINE_START_MARKER)) return transaction;
