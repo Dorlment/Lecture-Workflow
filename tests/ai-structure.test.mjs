@@ -105,6 +105,31 @@ function validConfig(overrides = {}) {
 	};
 }
 
+test('official DeepSeek V4 structuring disables thinking and allows 16384 output tokens', async () => {
+	for (const model of ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-flash']) {
+		const client = new MockHttpClient(successResponse(completeMarkdown()));
+		const provider = new DeepSeekTextProvider(validConfig({ baseUrl: 'https://api.deepseek.com', model }), client);
+		const result = await generateStructuredMarkdown(provider, '完整文字稿');
+		assert.ok(result.isComplete);
+		const body = JSON.parse(client.requests[0].body);
+		assert.equal(body.max_tokens, 16384);
+		assert.deepEqual(body.thinking, { type: 'disabled' });
+		await provider.testConnection();
+		assert.equal(JSON.parse(client.requests[1].body).max_tokens, 8);
+	}
+});
+
+test('legacy DeepSeek models and custom gateways retain compatible token budgets and request parameters', async () => {
+	for (const overrides of [{ baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' }, { model: 'deepseek-v4-flash' }]) {
+		const client = new MockHttpClient(successResponse(completeMarkdown()));
+		const provider = new DeepSeekTextProvider(validConfig(overrides), client);
+		await generateStructuredMarkdown(provider, '文字稿');
+		const body = JSON.parse(client.requests[0].body);
+		assert.equal(body.max_tokens, 8192);
+		assert.equal('thinking' in body, false);
+	}
+});
+
 function successResponse(content = 'OK') {
 	return {
 		status: 200,

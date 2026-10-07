@@ -24,7 +24,7 @@ import {
 	freshReadConflictSafeWrite,
 	processConflictSafeWrite,
 } from './note-conflict';
-import { generateVisionStructuredMarkdown } from './vision-generation';
+import { generateVisionStructuredMarkdown, type VisionGenerationProgress } from './vision-generation';
 import type {
 	ParsedVisionImageReference,
 	ResolvedVisionImage,
@@ -203,6 +203,7 @@ export class AiWorkflowService {
 		snapshot: VisionGenerationSnapshot,
 		providerId: VisionProviderId,
 		signal?: AbortSignal,
+		onProgress?: VisionGenerationProgress,
 	): Promise<AiPreviewData> {
 		try {
 			await this.assertSnapshotCurrent(snapshot);
@@ -218,6 +219,7 @@ export class AiWorkflowService {
 				signal,
 				timelineContext,
 				snapshot.sourceImageCount,
+				onProgress,
 			);
 			return {
 				filePath: snapshot.filePath,

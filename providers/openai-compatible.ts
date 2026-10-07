@@ -31,9 +31,12 @@ export interface OpenAICompatibleConfig {
 	model: string;
 	temperature: number;
 	timeoutMs: number;
+	thinking?: 'disabled';
 }
 
 interface ChatCompletionResponse {
+	id?: unknown;
+	request_id?: unknown;
 	choices?: Array<{
 		finish_reason?: unknown;
 		message?: {
@@ -101,6 +104,7 @@ export class OpenAICompatibleChatClient {
 			temperature: request.temperature,
 			max_tokens: request.maxTokens,
 			stream: false,
+			...(this.config.thinking ? { thinking: { type: this.config.thinking } } : {}),
 		});
 		const httpRequest = {
 			url: endpoint,
@@ -148,7 +152,12 @@ export class OpenAICompatibleChatClient {
 			throw new ProviderError('服务返回格式异常。', 'invalid-response', response.status);
 		}
 		if (!content.trim()) {
-			throw new ProviderError('服务返回了空内容。', 'empty-response', response.status);
+			const rawId = payload.request_id ?? payload.id;
+			const rawReason = payload.choices?.[0]?.finish_reason;
+			throw new ProviderError('服务返回了空内容。', 'empty-response', response.status, {
+				requestId: typeof rawId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(rawId) ? rawId : undefined,
+				finishReason: typeof rawReason === 'string' && /^(stop|length|content_filter|tool_calls|function_call)$/.test(rawReason) ? rawReason : undefined,
+			});
 		}
 		const finishReason = payload.choices?.[0]?.finish_reason;
 		return {

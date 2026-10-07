@@ -3,7 +3,7 @@ import {
 } from './ai-note';
 import {
 	STANDARD_TAKEAWAYS_HEADING,
-	STRUCTURE_MAX_OUTPUT_TOKENS,
+	structureOutputTokenLimit,
 	validateAndNormalizeStructure,
 } from './ai-generation';
 import type { GenerationDiagnostics } from './generation-diagnostics';
@@ -38,6 +38,9 @@ export interface VisionGenerationOutcome {
 	diagnostics?: GenerationDiagnostics;
 }
 
+export type VisionGenerationStage = 'vision' | 'text' | 'repair';
+export type VisionGenerationProgress = (stage: VisionGenerationStage, providerName: string) => void;
+
 interface VisionOutputValidation {
 	markdown: string;
 	isComplete: boolean;
@@ -57,6 +60,7 @@ export async function generateVisionStructuredMarkdown(
 	signal?: AbortSignal,
 	timelineContext?: string | null,
 	sourceImageCount?: number,
+	onProgress?: VisionGenerationProgress,
 ): Promise<VisionGenerationOutcome> {
 	const startedAt = Date.now();
 	let visionDurationMs: number | undefined;
@@ -80,6 +84,7 @@ export async function generateVisionStructuredMarkdown(
 	let evidenceResult: ProviderResponse;
 	const visionStartedAt = Date.now();
 	try {
+		onProgress?.('vision', visionProvider.displayName);
 		evidenceResult = await visionProvider.generateVision({
 			systemPrompt: VISION_EVIDENCE_SYSTEM_PROMPT,
 			textPrompt: buildVisionEvidencePrompt(images, timelineContext),
@@ -96,10 +101,11 @@ export async function generateVisionStructuredMarkdown(
 	// the full transcript, timeline context, and visual evidence.
 	const finalUserPrompt = buildVisionTextPrompt(transcript, timelineContext, visualEvidence);
 	let textStartedAt = Date.now();
+	onProgress?.('text', repairProvider.displayName);
 	const firstResult = await repairProvider.generate({
 		systemPrompt: VISION_SYSTEM_PROMPT,
 		userPrompt: finalUserPrompt,
-		maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
+		maxTokens: structureOutputTokenLimit(repairProvider),
 	}, signal);
 	textDurationMs += Date.now() - textStartedAt;
 	const firstValidation = validateVisionOutput(firstResult, references);
@@ -120,6 +126,7 @@ export async function generateVisionStructuredMarkdown(
 	let repairedResult: ProviderResponse;
 	textStartedAt = Date.now();
 	try {
+		onProgress?.('repair', repairProvider.displayName);
 		repairedResult = await repairProvider.generate({
 			systemPrompt: VISION_REPAIR_SYSTEM_PROMPT,
 			userPrompt: buildVisionRepairPrompt(
@@ -127,7 +134,7 @@ export async function generateVisionStructuredMarkdown(
 				repairSummaries,
 				firstValidation.reason,
 			),
-			maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
+			maxTokens: structureOutputTokenLimit(repairProvider),
 		}, signal);
 	} catch {
 		textDurationMs += Date.now() - textStartedAt;

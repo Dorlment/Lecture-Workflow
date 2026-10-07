@@ -16,6 +16,17 @@ export interface QwenProviderConfig extends Omit<OpenAICompatibleConfig, 'baseUr
 export class DeepSeekTextProvider extends OpenAICompatibleTextProvider {
 	readonly id: TextProviderId = 'deepseek';
 	readonly displayName = 'DeepSeek';
+	readonly structureOutputTokenLimit: number;
+
+	constructor(config: OpenAICompatibleConfig, httpClient: HttpClient) {
+		// Explicitly select non-thinking mode for supported official V4 models.
+		// Keep legacy models and custom gateways on their existing request shape.
+		let official = false;
+		try { official = new URL(config.baseUrl.trim()).hostname === 'api.deepseek.com'; } catch { /* validate() reports invalid URLs. */ }
+		const modern = official && /^(deepseek-v4-(flash|pro)|deepseek-flash)(?:-|$)/.test(config.model.trim());
+		super(modern ? { ...config, thinking: 'disabled' } : config, httpClient);
+		this.structureOutputTokenLimit = modern ? 16384 : 8192;
+	}
 }
 
 export class QwenTextProvider extends OpenAICompatibleTextProvider {

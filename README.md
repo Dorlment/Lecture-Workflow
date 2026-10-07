@@ -19,7 +19,7 @@ Lecture Workflow 是一个面向课堂学习场景的 Obsidian 桌面端插件�
 3. **整理文字和截图：**再启用「图片参与整理」，配置视觉服务。开始课堂监听后，把截图复制到系统剪贴板。
 4. **转写 Windows 电脑播放的课程声音：**配置 Qwen 实时转写的 API Key 和 Workspace ID，并安装下方的 Windows Audio Companion。[查看 Workspace ID 获取方法](https://help.aliyun.com/zh/model-studio/obtain-the-app-id-and-workspace-id)。打开课堂笔记、开始课堂监听，再到课堂工作台检查系统音频和实时转写状态。设置中的「测试 Qwen 文字连接」不能验证实时转写。
 
-**Windows 音频助手（仅网课系统声音需要）：**[下载 0.1.3 版 Windows x64 ZIP](https://github.com/Dorlment/Lecture-Workflow/releases/download/0.1.3/lecture-workflow-windows-helper-win-x64-v0.1.3.zip) · [查看完整安装步骤](#windows-audio-companion)。请与已安装插件的版本保持一致。0.1.3 版包含所需 .NET 运行环境，无需额外安装；旧 0.1.1 版的运行环境要求见下文。
+**Windows 音频助手（仅网课系统声音需要）：**[下载 0.1.4 版 Windows x64 ZIP](https://github.com/Dorlment/Lecture-Workflow/releases/download/0.1.4/lecture-workflow-windows-helper-win-x64-v0.1.4.zip) · [查看完整安装步骤](#windows-audio-companion)。请与已安装插件的版本保持一致。0.1.4 版包含所需 .NET 运行环境，无需额外安装；旧 0.1.1 版的运行环境要求见下文。
 
 插件不保存录音。系统音频助手在本机捕获电脑播放的声音；启动实时转写后，插件会将音频发送到你配置的 Qwen 服务，服务可能产生费用。
 
@@ -86,10 +86,10 @@ Qwen Vision 不负责最终完整笔记的生成。
 
 Windows Audio Companion 是 Windows 用户在需要直接获取系统音频时使用的可选组件。V0.1 不会自动下载、安装、解压或更新 Helper。
 
-请从 [Lecture Workflow 官方 GitHub Release](https://github.com/Dorlment/Lecture-Workflow/releases) 下载与插件版本一致的 ZIP。0.1.3 版可[直接下载 Windows x64 Helper](https://github.com/Dorlment/Lecture-Workflow/releases/download/0.1.3/lecture-workflow-windows-helper-win-x64-v0.1.3.zip)：
+请从 [Lecture Workflow 官方 GitHub Release](https://github.com/Dorlment/Lecture-Workflow/releases) 下载与插件版本一致的 ZIP。0.1.4 版可[直接下载 Windows x64 Helper](https://github.com/Dorlment/Lecture-Workflow/releases/download/0.1.4/lecture-workflow-windows-helper-win-x64-v0.1.4.zip)：
 
 ```text
-lecture-workflow-windows-helper-win-x64-v0.1.3.zip
+lecture-workflow-windows-helper-win-x64-v0.1.4.zip
 ```
 
 Obsidian 默认的 Vault 配置目录名称通常是 `.obsidian`。如果你修改过 Vault 的配置目录名称，请在下列路径中使用实际配置目录；示例中的 `.obsidian` 不是强制固定名称。
@@ -122,10 +122,10 @@ lecture-workflow/
 不要形成重复的双层目录，例如：
 
 ```text
-companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.3/LectureWorkflow.AudioCompanion.Windows.exe
+companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.4/LectureWorkflow.AudioCompanion.Windows.exe
 ```
 
-**0.1.3 Helper** 为 Windows x64 自包含构建，包含所需 .NET 运行环境，无需额外安装。旧 **0.1.1 Helper** 为 framework-dependent 构建，仍需要兼容的 `Microsoft.NETCore.App 10.0` 与 `Microsoft.AspNetCore.App 10.0` x64 shared framework；只安装「.NET 10 Desktop Runtime」不足以满足旧版要求。
+**0.1.4 Helper** 为 Windows x64 自包含构建，包含所需 .NET 运行环境，无需额外安装。旧 **0.1.1 Helper** 为 framework-dependent 构建，仍需要兼容的 `Microsoft.NETCore.App 10.0` 与 `Microsoft.AspNetCore.App 10.0` x64 shared framework；只安装「.NET 10 Desktop Runtime」不足以满足旧版要求。
 
 删除课堂时间线中的截图后，插件会同时清理没有其他内容的时间戳条目。已遗留的空条目可通过命令「清理已删除截图的空时间戳」清理；条目中手动添加的文字和其他图片会保留。
 
@@ -178,7 +178,7 @@ Helper ZIP 应保留正式 `dotnet publish` 输出的全部必需运行依赖，
 
 - 确认 Helper 版本与插件版本一致。
 - 确认 EXE 直接位于 `companion/windows/`，没有多一层 ZIP 目录。
-- 如使用旧 0.1.1 版，确认所需的 .NET 10 与 ASP.NET Core 10 x64 shared framework 已安装；0.1.3 自包含版本无此要求。
+- 如使用旧 0.1.1 版，确认所需的 .NET 10 与 ASP.NET Core 10 x64 shared framework 已安装；0.1.4 自包含版本无此要求。
 - 重新加载插件后再开始课堂监听，并在课堂工作台检查状态。
 
 ### 截图未加入时间线

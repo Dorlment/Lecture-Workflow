@@ -240,6 +240,15 @@ export default class LectureWorkflowPlugin extends Plugin {
 			name: 'AI 整理当前课堂笔记',
 			callback: () => this.runAiWorkflow(),
 		});
+		this.addCommand({
+			id: 'cancel-image-ai-workflow',
+			name: '取消图片 AI 整理',
+			checkCallback: (checking) => {
+				if (!this.activeVisionAbortController) return false;
+				if (!checking) this.activeVisionAbortController.abort();
+				return true;
+			},
+		});
 
 		this.addCommand({
 			id: 'toggle-classroom-listening',
@@ -1070,15 +1079,28 @@ export default class LectureWorkflowPlugin extends Plugin {
 	): Promise<void> {
 		const controller = new AbortController();
 		this.activeVisionAbortController = controller;
+		let stageProviderName = providerId === 'qwen' ? 'Qwen-VL' : 'Custom Vision';
+		let stageMessage = '正在准备视觉 AI 整理';
+		let stageStartedAt = Date.now();
 		const progress = this.progressNotices.start(
 			'ai-workflow',
 			'正在准备视觉 AI 整理…',
 		);
+		const progressTimer = window.setInterval(() => {
+			progress.update(`${stageMessage}（已等待 ${Math.floor((Date.now() - stageStartedAt) / 1000)} 秒；单次请求超时 ${Math.round(this.settings.requestTimeoutMs / 1000)} 秒）。可在命令面板取消图片 AI 整理。`);
+		}, 1000);
 		try {
 			const provider = registry.getVisionProviderForConfirmedRetry(providerId);
 			progress.update(`正在使用 ${provider.displayName} 进行视觉理解，随后由文本模型完成结构化整理…`);
 			const preview = await this.aiWorkflowGate.completeWithPreview(
-				() => service.generateVision(prepared, providerId, controller.signal),
+				() => service.generateVision(prepared, providerId, controller.signal, (stage, name) => {
+					stageProviderName = name;
+					stageStartedAt = Date.now();
+					stageMessage = stage === 'vision' ? `正在使用 ${name} 理解图片（第 1/3 步）`
+						: stage === 'text' ? `图片理解完成，正在使用 ${name} 整理文字（第 2/3 步）`
+							: `正在使用 ${name} 修复笔记格式（第 3/3 步）`;
+					progress.update(stageMessage);
+				}),
 			);
 			if (!shouldAcceptVisionResult(controller.signal)) {
 				this.aiWorkflowGate.reset();
@@ -1101,11 +1123,13 @@ export default class LectureWorkflowPlugin extends Plugin {
 					registry,
 					providerId,
 					progress,
+					stageProviderName,
 				);
 			} else {
 				progress.cancel('视觉 AI 整理已取消。');
 			}
 		} finally {
+			window.clearInterval(progressTimer);
 			service.disposeVisionSnapshot(prepared);
 			if (this.activeVisionAbortController === controller) {
 				this.activeVisionAbortController = null;
@@ -1121,6 +1145,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 		registry: ProviderRegistry,
 		providerId: VisionProviderId,
 		progress: ProgressNoticeLease,
+		stageProviderName?: string,
 	): void {
 		if (isVisionWorkflowConflictError(error)) {
 			progress.failure(error.message);
@@ -1128,12 +1153,14 @@ export default class LectureWorkflowPlugin extends Plugin {
 		}
 		if (!(error instanceof ProviderError)) {
 			progress.failure('视觉 AI 整理失败：发生未知错误，请稍后重试。');
+			this.openVisionRetryModal('图片 AI 整理失败：发生未知错误，未生成可供预览的结果。', [], snapshot, service, registry);
 			return;
 		}
 		const providerName = providerId === 'qwen' ? 'Qwen-VL' : 'Custom Vision';
-		const failure = describeProviderFailure(providerName, error);
+		const failure = describeProviderFailure(stageProviderName ?? providerName, error);
 		progress.failure(`视觉 AI 整理失败：${failure.message}`);
 		if (!failure.isRetryableConnectionFailure) {
+			this.openVisionRetryModal(failure.message, [], snapshot, service, registry);
 			return;
 		}
 		let qwenConfigured = false;

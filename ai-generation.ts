@@ -11,6 +11,10 @@ import type { TextGenerationResult, TextProvider } from './provider-types';
 export const STANDARD_TAKEAWAYS_HEADING = '## 💡 核心 Takeaways（3分钟速记）';
 export const STRUCTURE_MAX_OUTPUT_TOKENS = 8192;
 
+export function structureOutputTokenLimit(provider: TextProvider): number {
+	return provider.structureOutputTokenLimit ?? STRUCTURE_MAX_OUTPUT_TOKENS;
+}
+
 export interface AiGenerationOutcome {
 	markdown: string;
 	isComplete: boolean;
@@ -37,7 +41,7 @@ export async function generateStructuredMarkdown(
 	const firstResult = await provider.generate({
 		systemPrompt: STRUCTURE_SYSTEM_PROMPT,
 		userPrompt: buildStructureUserPrompt(transcript, timelineContext),
-		maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
+		maxTokens: structureOutputTokenLimit(provider),
 	});
 	textDurationMs += Date.now() - callStartedAt;
 	const firstValidation = validateAndNormalizeStructure(firstResult);
@@ -58,7 +62,7 @@ export async function generateStructuredMarkdown(
 			firstValidation.markdown,
 			firstValidation.reason,
 		),
-		maxTokens: STRUCTURE_MAX_OUTPUT_TOKENS,
+		maxTokens: structureOutputTokenLimit(provider),
 	});
 	textDurationMs += Date.now() - callStartedAt;
 	const repairedValidation = validateAndNormalizeStructure(repairedResult);

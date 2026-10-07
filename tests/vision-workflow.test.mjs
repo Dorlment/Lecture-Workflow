@@ -122,6 +122,27 @@ ${placeholders.map((id) => `{{IMAGE:${id}}}`).join('\n\n')}
 - 结论三`;
 }
 
+test('reports the actual vision, text and repair provider stages before each request', async () => {
+	const stages = [];
+	const vision = new MockVisionProvider([response('图片证据')]);
+	const text = new MockRepairProvider([response('格式缺失'), response(validVisualMarkdown())]);
+	text.displayName = 'DeepSeek';
+	text.structureOutputTokenLimit = 16384;
+	const outcome = await generateVisionStructuredMarkdown(vision, text, '文字稿', [resolvedImage()], undefined, null, 1,
+		(stage, name) => stages.push([stage, name, vision.requests.length, text.requests.length]));
+	assert.deepEqual(stages, [['vision', 'Mock Qwen-VL', 0, 0], ['text', 'DeepSeek', 1, 0], ['repair', 'DeepSeek', 1, 1]]);
+	assert.ok(outcome.isComplete);
+	assert.ok(text.requests.every((request) => request.maxTokens === 16384));
+});
+
+test('reports text as the last stage when text generation fails after successful image understanding', async () => {
+	const stages = [];
+	const text = new MockRepairProvider([new Error('text timed out')]);
+	await assert.rejects(generateVisionStructuredMarkdown(new MockVisionProvider([response('图片证据')]), text,
+		'文字稿', [resolvedImage()], undefined, null, 1, (stage) => stages.push(stage)), /text timed out/);
+	assert.deepEqual(stages, ['vision', 'text']);
+});
+
 test('visual evidence from Qwen is passed to DeepSeek for final generation', async () => {
 	const evidence = '图片中清晰可见 DeepSeek Harness';
 	const vision = new MockVisionProvider([response(evidence)]);

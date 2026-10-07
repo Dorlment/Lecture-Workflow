@@ -3,6 +3,7 @@ import type {
 	TextProviderId,
 	VisionProviderId,
 } from './provider-types';
+import { ProviderError } from './provider-types';
 
 export interface AiRetryOption {
 	providerId: TextProviderId;
@@ -30,8 +31,13 @@ export function describeProviderFailure(providerName: string, error: unknown): S
 		'invalid-response': '服务返回格式异常。',
 		unknown: '发生未知错误，请重试或检查 Provider 设置。',
 	};
+	const details = error instanceof ProviderError ? error.responseDetails : undefined;
+	const reason = details?.finishReason;
+	const detailMessage = code === 'empty-response' && details
+		? `${reason === 'length' ? '生成达到输出上限，但没有返回正文。' : ''}${reason ? `结束原因：${reason}。` : ''}${details.requestId ? `请求 ID：${details.requestId}。` : ''}`
+		: '';
 	return {
-		message: `${providerName}（${errorTypeLabel(code)}）：${descriptions[code]}`,
+		message: `${providerName}（${errorTypeLabel(code)}）：${descriptions[code]}${detailMessage}`,
 		code,
 		isRetryableConnectionFailure: code === 'timeout' || code === 'network',
 	};

@@ -176,6 +176,18 @@ function visionRequest(overrides = {}) {
 	};
 }
 
+test('empty visual responses preserve safe finish reasons and request IDs without treating reasoning as an answer', async () => {
+	const client = new MockHttpClient({ status: 200, text: JSON.stringify({ id: 'chatcmpl-safe-123',
+		choices: [{ message: { content: '', reasoning_content: 'private reasoning' }, finish_reason: 'length' }] }) });
+	const provider = new QwenVisionProvider(qwenVisionConfig(), client);
+	await assert.rejects(provider.generateVision(visionRequest()), (error) => {
+		assert.equal(error.code, 'empty-response');
+		assert.deepEqual(error.responseDetails, { requestId: 'chatcmpl-safe-123', finishReason: 'length' });
+		assert.doesNotMatch(JSON.stringify(error), /private reasoning/);
+		return true;
+	});
+});
+
 function registrySettings(overrides = {}) {
 	const base = normalizeSettings({
 		setupMode: 'recommended',

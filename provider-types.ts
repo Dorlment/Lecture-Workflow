@@ -40,6 +40,7 @@ export interface TextProvider {
 	readonly id: TextProviderId;
 	readonly displayName: string;
 	readonly capabilities: ProviderCapabilities;
+	readonly structureOutputTokenLimit?: number;
 	validate(): string[];
 	generate(request: TextGenerationRequest, signal?: AbortSignal): Promise<TextGenerationResult>;
 	testConnection(): Promise<void>;
@@ -95,6 +96,7 @@ export class ProviderError extends Error {
 		message: string,
 		readonly code: ProviderErrorCode,
 		readonly status?: number,
+		readonly responseDetails?: { requestId?: string; finishReason?: string },
 	) {
 		super(message);
 		this.name = 'ProviderError';
