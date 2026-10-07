@@ -100,6 +100,7 @@ import type {
 	ScreenshotBackgroundState,
 } from './screenshot-background-types';
 import { createElectronClipboardAdapter } from './screenshot-clipboard-adapter';
+import { emptyScreenshotTimelineRanges, screenshotTimelineDeletionExtension } from './screenshot-timeline-cleanup';
 import type {
 	LectureNoteInput,
 	LectureWorkflowSettings,
@@ -140,6 +141,7 @@ export default class LectureWorkflowPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		this.registerEditorExtension(screenshotTimelineDeletionExtension());
 		this.initializeScreenshotBackgroundSession();
 		this.audioCaptureProbe = createBrowserAudioCaptureProbe(() => Platform.isDesktopApp);
 		this.audioCompanionClient = new AudioCompanionClient({
@@ -207,6 +209,22 @@ export default class LectureWorkflowPlugin extends Plugin {
 			id: 'create-lecture-note',
 			name: '创建课堂笔记',
 			callback: () => this.openCreateLectureNoteModal(),
+		});
+
+		this.addCommand({
+			id: 'clean-empty-screenshot-entries',
+			name: '清理已删除截图的空时间戳',
+			editorCallback: (editor) => {
+				const ranges = emptyScreenshotTimelineRanges(editor.getValue());
+				if (ranges.length === 0) {
+					new Notice('没有需要清理的空截图条目。');
+					return;
+				}
+				editor.transaction({ changes: ranges.map(({ from, to }) => ({
+					from: editor.offsetToPos(from), to: editor.offsetToPos(to), text: '',
+				})) });
+				new Notice(`已清理 ${ranges.length} 个空截图条目。`);
+			},
 		});
 
 		this.addCommand({

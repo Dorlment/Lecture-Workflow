@@ -107,10 +107,15 @@ function errorMessage(state: RealtimeAsrRuntimeState): string {
 			timeout: `Qwen 服务端报告请求超时${failure.serviceTimeoutSeconds === null ? '' : `（${failure.serviceTimeoutSeconds} 秒）`}。`,
 			authentication: 'Qwen 拒绝身份验证或访问权限，请检查 API Key、Workspace ID 和北京地域是否匹配。',
 			'rate-limit': 'Qwen 限制了请求频率或并发数，请稍后重试并检查百炼配额。',
-			quota: 'Qwen 报告额度或余额不足，请检查百炼账户。',
+			quota: 'Qwen 报告额度、余额或账单异常，请检查百炼账户余额、账单和预算限制。',
+			'free-tier-exhausted': failure.serviceCode === 'AllocationQuota.FreeTierOnly'
+				? 'Qwen 报告免费额度已耗尽或过期，且当前仅允许使用免费额度。请在百炼控制台补全付费信息，或关闭「仅使用免费额度」后重试；启用付费调用可能产生费用。'
+				: 'Qwen 报告免费额度已耗尽或过期，请在百炼控制台检查该模型的免费额度、有效期及付费调用是否可用。',
 			'invalid-configuration': 'Qwen 拒绝了模型或请求参数，请检查实时转写模型是否可用。',
 			'service-unavailable': 'Qwen 服务暂时不可用，请稍后重新启动实时转写。',
-			unknown: 'Qwen 返回了尚未识别的任务错误，请复制报错详情进一步排查。',
+			unknown: failure.phase === 'starting-task'
+				? 'Qwen 在启动识别任务时拒绝了请求，本轮尚未发送音频。具体原因未识别，请检查模型可用性、访问权限及额度；可将任务 ID 提供给阿里云排查。'
+				: 'Qwen 返回了尚未识别的任务错误，请复制报错详情并将任务 ID 提供给阿里云进一步排查。',
 		};
 		const audioGap = failure.phase === 'streaming' && failure.reason === 'timeout'
 			? failure.lastAudioReceivedAgeMs === null
@@ -184,6 +189,7 @@ export function realtimeAsrFailureReport(state: RealtimeAsrRuntimeState): string
 	lines.push(`失败阶段：${phases[failure.phase]}`, `本轮持续：${seconds(failure.elapsedMs)} 秒`);
 	if (failure.localTimeoutMs !== undefined) lines.push(`本地等待上限：${seconds(failure.localTimeoutMs)} 秒`);
 	if (failure.serviceCode) lines.push(`服务错误码：${failure.serviceCode}`);
+	else if (failure.origin === 'service') lines.push('服务错误码：未识别（未保留原始值）');
 	if (failure.httpStatus !== null) lines.push(`HTTP 状态：${failure.httpStatus}`);
 	if (failure.networkCode) lines.push(`网络错误码：${failure.networkCode}`);
 	if (failure.closeCode !== null) lines.push(`WebSocket 关闭码：${failure.closeCode}`);

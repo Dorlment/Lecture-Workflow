@@ -150,7 +150,7 @@ export type RealtimeAsrErrorCode =
 	| 'remote-closed';
 
 export type RealtimeAsrFailureReason =
-	| 'timeout' | 'authentication' | 'rate-limit' | 'quota'
+	| 'timeout' | 'authentication' | 'rate-limit' | 'quota' | 'free-tier-exhausted'
 	| 'invalid-configuration' | 'service-unavailable' | 'unknown';
 
 export interface RealtimeAsrFailureDetails {

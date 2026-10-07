@@ -619,15 +619,16 @@ test('TypeScript frame parser reads the shared C# golden fixture', () => {
 	assert.equal(Buffer.from(frame.pcm).toString('hex'), sharedFrameFixture.pcmHex);
 });
 
-test('Windows helper documentation requires manual v0.1.1 installation at the resolver path', async () => {
+test('Windows helper documentation describes the current self-contained release and legacy runtime requirements', async () => {
 	const [rootReadme, companionReadme] = await Promise.all([
 		readFile('README.md', 'utf8'),
 		readFile('companion/windows/README.md', 'utf8'),
 	]);
 	const combined = `${rootReadme}\n${companionReadme}`;
-	assert.match(combined, /lecture-workflow-windows-helper-win-x64-v0\.1\.1\.zip/);
+	assert.match(combined, /lecture-workflow-windows-helper-win-x64-v0\.1\.2\.zip/);
+	assert.match(companionReadme, /0\.1\.2 Windows x64 archive is self-contained/);
 	assert.match(combined, /<Vault>\/\.obsidian\/plugins\/lecture-workflow\/companion\/windows\/LectureWorkflow\.AudioCompanion\.Windows\.exe/);
-	assert.match(combined, /companion\/windows\/lecture-workflow-windows-helper-win-x64-v0\.1\.1\/LectureWorkflow\.AudioCompanion\.Windows\.exe/);
+	assert.match(combined, /companion\/windows\/lecture-workflow-windows-helper-win-x64-v0\.1\.2\/LectureWorkflow\.AudioCompanion\.Windows\.exe/);
 	assert.match(companionReadme, /Microsoft\.NETCore\.App 10\.0/);
 	assert.match(companionReadme, /Microsoft\.AspNetCore\.App 10\.0/);
 	assert.match(companionReadme, /complete runtime\s+dependency set retained from the actual publish output/);

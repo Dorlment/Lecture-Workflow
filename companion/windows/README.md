@@ -20,7 +20,7 @@ Download the helper archive matching the plugin version from
 the official Lecture Workflow GitHub Release:
 
 ```text
-lecture-workflow-windows-helper-win-x64-v0.1.1.zip
+lecture-workflow-windows-helper-win-x64-v0.1.2.zip
 ```
 
 Exit Obsidian completely, then extract the archive contents into the installed plugin directory:
@@ -56,10 +56,13 @@ Do not leave an extra archive-name directory between `windows/` and the executab
 wrong and will not be detected:
 
 ```text
-companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.1/LectureWorkflow.AudioCompanion.Windows.exe
+companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.2/LectureWorkflow.AudioCompanion.Windows.exe
 ```
 
-The published 0.1.1 archive is framework-dependent. Its generated runtime configuration
+The 0.1.2 Windows x64 archive is self-contained and includes the required .NET runtime.
+No separate .NET installation is needed for that archive.
+
+The old 0.1.1 archive is framework-dependent. Its generated runtime configuration
 requires compatible x64 installations of both `Microsoft.NETCore.App 10.0` and
 `Microsoft.AspNetCore.App 10.0`. Describing that requirement as only the ".NET 10 Desktop Runtime"
 is not accurate. A compatible .NET 10 SDK also supplies the required shared frameworks for

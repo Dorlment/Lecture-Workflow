@@ -3179,6 +3179,44 @@ test('service failures classify authentication, rate limits and quota without st
 	}
 });
 
+test('startup rejections distinguish billing, free quota and model errors without retaining server text', async () => {
+	for (const [code, message, reason, pattern] of [
+		['AllocationQuota.FreeTierOnly', 'The free quota has been exhausted. To continue accessing the model on a paid basis, please complete your payment information (or disable the "use free tier only" mode in the management console if already completed)', 'free-tier-exhausted', /仅允许使用免费额度.*可能产生费用/],
+		['AllocationQuota.FreeTierOnly', '', 'free-tier-exhausted', /仅允许使用免费额度/],
+		['Throttling.AllocationQuota', 'Free allocated quota exceeded.', 'free-tier-exhausted', /免费额度已耗尽或过期/],
+		['Arrearage', 'Access denied, please make sure your account is in good standing.', 'quota', /余额、账单和预算/],
+		['PrepaidBillOverdue', 'The prepaid bill is overdue.', 'quota', /账单/],
+		['PostpaidBillOverdue', '', 'quota', /账单/],
+		['BudgetLimitExceeded', '', 'quota', /预算/],
+		['CLIENT_ERROR', 'Model can not be found.', 'invalid-configuration', /模型或请求参数/],
+		['model_not_found', '', 'invalid-configuration', /模型或请求参数/],
+		['Throttling.AllocationQuota', 'Allocated quota exceeded, please increase your quota limit.', 'rate-limit', /请求频率或并发数/],
+		['insufficient_quota', 'You exceeded your current quota, please check your plan and billing details.', 'rate-limit', /请求频率或并发数/],
+		['Throttling.Concurrency', 'Too many concurrent requests.', 'rate-limit', /请求频率或并发数/],
+		['UNKNOWN', 'Unrecognized rejection.', 'unknown', /尚未发送音频/],
+	]) {
+		const harness = providerHarness();
+		const starting = harness.provider.start(new AbortController().signal);
+		const rejected = assert.rejects(starting, RealtimeAsrError);
+		await waitFor(() => harness.transport.texts.length === 1);
+		harness.transport.emit(JSON.stringify({
+			header: { event: 'task-failed', task_id: 'task-1', error_code: code,
+				error_message: `${message} apiKey=unit-test-secret transcript=private-speech` }, payload: {},
+		}));
+		await rejected;
+		assert.deepEqual(harness.failures, ['task-failed']);
+		const diagnostics = harness.progress.at(-1).diagnostics;
+		assert.equal(diagnostics.failure.reason, reason);
+		assert.equal(diagnostics.failure.phase, 'starting-task');
+		assert.equal(diagnostics.failure.lastAudioDispatchAgeMs, null);
+		const report = realtimeAsrFailureReport(asrState('error', { errorCode: 'task-failed', diagnostics }));
+		assert.match(report, pattern);
+		if (code === 'UNKNOWN') assert.match(report, /服务错误码：未识别/);
+		else assert.equal(diagnostics.failure.serviceCode, code);
+		assert.doesNotMatch(JSON.stringify(diagnostics) + report, /unit-test-secret|private-speech|apiKey=/);
+	}
+});
+
 test('transport HTTP and network causes survive provider cleanup and produce actionable reports', async () => {
 	for (const [details, pattern] of [
 		[{ httpStatus: 429 }, /HTTP 429.*限流/],

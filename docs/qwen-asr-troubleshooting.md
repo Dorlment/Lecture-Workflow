@@ -21,6 +21,12 @@
 
 ## 复制报错详情
 
+`AllocationQuota.FreeTierOnly` 表示免费额度已耗尽或过期，且当前仅允许使用免费额度。百炼会在任务启动阶段拒绝请求，即使 WebSocket 已连接、系统音频正在捕获也不能转写。在百炼控制台补全付费信息，或关闭「仅使用免费额度」后才能继续付费调用；可能产生费用，插件不会自动调整计费设置。
+
+如果启动后很快失败且显示「本轮未发送」，服务端是在接收音频前拒绝了任务，优先核对模型名称、访问权限和账户额度。在插件「高级设置：模型参数与自定义服务」中查看 `Realtime ASR Model`；「Qwen 视觉模型」是图片理解配置，不能用它判断实时转写模型。
+
+`Free allocated quota exceeded` 表示免费额度到期或耗尽；`Arrearage` 或 `Access denied, please make sure your account is in good standing` 表示账户欠费；`PrepaidBillOverdue`、`PostpaidBillOverdue` 和 `BudgetLimitExceeded` 分别指账单或预算问题。`Throttling.AllocationQuota` 如果没有免费额度提示，通常是调用配额限流，不应直接判断为余额不足。`ModelNotFound` 也可能是模型名称、地域或未开通服务，并不能单独证明模型下线。参考[官方错误码](https://help.aliyun.com/zh/model-studio/error-code)。
+
 在「实时转写 → 详细状态」点击「复制报错详情」。报告记录失败阶段、已识别的服务错误码、HTTP/网络状态、音频帧间隔、发送队列与缓冲，以及安全格式的任务 ID。截图或报错原文也可辅助排查。
 
 报告不包含 API Key、Workspace ID、识别文字、音频或原始服务端响应。未识别的错误消息不会原样展示，也不会将猜测当作确定原因。需要阿里云进一步排查时，可提供任务 ID。

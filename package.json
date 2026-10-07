@@ -19,6 +19,7 @@
 	],
 	"author": "Dorlment",
 	"devDependencies": {
+		"@codemirror/state": "6.5.0",
 		"@eslint/js": "^9.39.4",
 		"@types/node": "^22.15.17",
 		"@types/ws": "^8.18.1",
