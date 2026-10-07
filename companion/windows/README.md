@@ -20,7 +20,7 @@ Download the helper archive matching the plugin version from
 the official Lecture Workflow GitHub Release:
 
 ```text
-lecture-workflow-windows-helper-win-x64-v0.1.4.zip
+lecture-workflow-windows-helper-win-x64-v0.1.3.zip
 ```
 
 Exit Obsidian completely, then extract the archive contents into the installed plugin directory:
@@ -56,10 +56,10 @@ Do not leave an extra archive-name directory between `windows/` and the executab
 wrong and will not be detected:
 
 ```text
-companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.4/LectureWorkflow.AudioCompanion.Windows.exe
+companion/windows/lecture-workflow-windows-helper-win-x64-v0.1.3/LectureWorkflow.AudioCompanion.Windows.exe
 ```
 
-The 0.1.4 Windows x64 archive is self-contained and includes the required .NET runtime.
+The 0.1.3 Windows x64 archive is self-contained and includes the required .NET runtime.
 No separate .NET installation is needed for that archive.
 
 The old 0.1.1 archive is framework-dependent. Its generated runtime configuration
@@ -355,3 +355,5 @@ stops when the script closes its standard-input pipe.
 The byte array is zeroed as soon as the Base64URL value is created and again during cleanup. The
 immutable .NET string cannot be actively zeroed; the script only shortens its lifetime, clears its
 variable reference, and never caches or prints it.
+
+Plugin 0.1.4 reuses the unchanged 0.1.3 Windows helper archive. Existing installations do not need a helper update.

@@ -625,10 +625,10 @@ test('Windows helper documentation describes the current self-contained release 
 		readFile('companion/windows/README.md', 'utf8'),
 	]);
 	const combined = `${rootReadme}\n${companionReadme}`;
-	assert.match(combined, /lecture-workflow-windows-helper-win-x64-v0\.1\.4\.zip/);
-	assert.match(companionReadme, /0\.1\.4 Windows x64 archive is self-contained/);
+	assert.match(combined, /lecture-workflow-windows-helper-win-x64-v0\.1\.3\.zip/);
+	assert.match(companionReadme, /0\.1\.3 Windows x64 archive is self-contained/);
 	assert.match(combined, /<Vault>\/\.obsidian\/plugins\/lecture-workflow\/companion\/windows\/LectureWorkflow\.AudioCompanion\.Windows\.exe/);
-	assert.match(combined, /companion\/windows\/lecture-workflow-windows-helper-win-x64-v0\.1\.4\/LectureWorkflow\.AudioCompanion\.Windows\.exe/);
+	assert.match(combined, /companion\/windows\/lecture-workflow-windows-helper-win-x64-v0\.1\.3\/LectureWorkflow\.AudioCompanion\.Windows\.exe/);
 	assert.match(companionReadme, /Microsoft\.NETCore\.App 10\.0/);
 	assert.match(companionReadme, /Microsoft\.AspNetCore\.App 10\.0/);
 	assert.match(companionReadme, /complete runtime\s+dependency set retained from the actual publish output/);
